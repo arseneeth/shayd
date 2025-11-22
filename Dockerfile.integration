@@ -1,0 +1,49 @@
+# Dockerfile for Integration Tests
+
+FROM ghcr.io/foundry-rs/foundry:latest
+
+# Switch to root user to install packages
+USER root
+
+# Install Node.js, npm, and curl (Foundry image is Debian-based, uses apt-get)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl ca-certificates gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files and config
+COPY package.json jest.config.js ./
+COPY tests/setup.ts ./tests/
+
+# Install dependencies (will create package-lock.json if needed)
+RUN npm install
+
+# Copy test files
+COPY tests/integration ./tests/integration
+COPY scaffold ./scaffold
+COPY resolver ./resolver
+
+WORKDIR /app/scaffold/packages/foundry
+
+# Install Foundry dependencies (if not already installed)
+RUN forge install || true
+
+WORKDIR /app
+
+# Verify package.json exists and show npm scripts
+RUN test -f /app/package.json && echo "package.json found" && cat /app/package.json | grep -A 5 scripts || (echo "ERROR: package.json not found!" && exit 1)
+
+# Copy test script
+COPY tests/integration/simple-test.sh ./tests/integration/simple-test.sh
+RUN chmod +x ./tests/integration/simple-test.sh
+
+# Run integration tests - deployment happens in docker-compose command
+WORKDIR /app
+ENTRYPOINT []
+CMD ["/bin/sh", "-c", "cd /app && ./tests/integration/simple-test.sh || npm run test:integration"]
+

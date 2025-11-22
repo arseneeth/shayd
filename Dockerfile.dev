@@ -24,5 +24,13 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# Create entrypoint script to fix permissions
+RUN echo '#!/bin/sh' > /entrypoint.sh && \
+    echo 'chmod -R a+rw /app/scaffold 2>/dev/null || true' >> /entrypoint.sh && \
+    echo 'cd /app/scaffold/packages/nextjs' >> /entrypoint.sh && \
+    echo 'exec "$@"' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["yarn", "dev"]
 

@@ -9,7 +9,7 @@ services:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
     volumes:
-      - ./scaffold:/app/scaffold
+      - ./scaffold:/app/scaffold:z
       - /app/node_modules
       - /app/scaffold/node_modules
       - /app/scaffold/packages/nextjs/node_modules

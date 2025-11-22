@@ -4,6 +4,10 @@ node_modules
 .pnp
 .pnp.js
 
+# Yarn cache (but keep releases and plugins)
+scaffold/.yarn/cache
+scaffold/.yarn/install-state.gz
+
 # Testing
 coverage
 *.test.js

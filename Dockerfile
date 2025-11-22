@@ -1,17 +1,23 @@
 # Multi-stage build for Next.js application
 FROM node:20-alpine AS base
 
+# Enable Corepack for Yarn 3.2.3
+RUN corepack enable
+
 # Install dependencies only when needed
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copy package files
+# Copy Yarn configuration and package files
+COPY scaffold/.yarnrc.yml scaffold/.yarnrc.yml
+COPY scaffold/.yarn ./scaffold/.yarn
 COPY scaffold/package.json scaffold/yarn.lock ./
 COPY scaffold/packages/nextjs/package.json ./packages/nextjs/
 COPY scaffold/packages/foundry/package.json ./packages/foundry/
 
 # Install dependencies
+WORKDIR /app/scaffold
 RUN yarn install --frozen-lockfile
 
 # Rebuild the source code only when needed

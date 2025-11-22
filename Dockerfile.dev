@@ -1,20 +1,21 @@
 # Development Dockerfile for Next.js application
 FROM node:20-alpine
 
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
+
+# Enable Corepack for Yarn 3.2.3
+RUN corepack enable
 
 WORKDIR /app
 
-# Copy package files
-COPY scaffold/package.json scaffold/yarn.lock ./
-COPY scaffold/packages/nextjs/package.json ./packages/nextjs/
-COPY scaffold/packages/foundry/package.json ./packages/foundry/
+# Copy entire scaffold directory (including .yarn for Yarn 3.2.3)
+# Excluding node_modules and cache via .dockerignore
+COPY scaffold ./scaffold
 
 # Install dependencies
+WORKDIR /app/scaffold
+ENV YARN_ENABLE_IMMUTABLE_INSTALLS=false
 RUN yarn install
-
-# Copy application code
-COPY scaffold ./scaffold
 
 WORKDIR /app/scaffold/packages/nextjs
 

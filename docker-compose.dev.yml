@@ -11,8 +11,10 @@ services:
     volumes:
       - ./scaffold:/app/scaffold
       - /app/node_modules
+      - /app/scaffold/node_modules
       - /app/scaffold/packages/nextjs/node_modules
-    command: yarn start
+    user: root
+    command: yarn dev
     restart: unless-stopped
     networks:
       - shayd-network

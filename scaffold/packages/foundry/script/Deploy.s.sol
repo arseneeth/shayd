@@ -15,8 +15,8 @@ contract DeployScript is ScaffoldETHDeploy {
         // Deploys all your contracts sequentially
         // Add new deployments here when needed
 
-        DeployYourContract deployYourContract = new DeployYourContract();
-        deployYourContract.run();
+        // DeployYourContract deployYourContract = new DeployYourContract(); // YourContract was removed
+        // deployYourContract.run();
 
         // Deploy another contract
         // DeployMyContract myContract = new DeployMyContract();

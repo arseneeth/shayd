@@ -34,15 +34,41 @@ services:
       - PRIVATE_KEY=${RESOLVER_PRIVATE_KEY:-}
       - LIQUIDATION_THRESHOLD=1000000000000000000
       - MONITORING_INTERVAL=30000
+      - DB_PATH=/app/data/tee-storage.db
     volumes:
       - ./resolver:/app:z
       - ./scaffold:/app/scaffold:z
+      - resolver-data:/app/data
       - /app/node_modules
     networks:
       - shayd-network
     restart: unless-stopped
     depends_on:
       - anvil
+
+  # Next.js Frontend - Scaffold-ETH 2 UI
+  nextjs:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+    volumes:
+      - ./scaffold:/app/scaffold:z
+      - /app/node_modules
+      - /app/scaffold/node_modules
+      - /app/scaffold/packages/nextjs/node_modules
+    user: root
+    command: yarn dev
+    restart: unless-stopped
+    networks:
+      - shayd-network
+    depends_on:
+      anvil:
+        condition: service_healthy
 
   # Integration Test Runner
   integration-tests:
@@ -76,4 +102,5 @@ networks:
 
 volumes:
   anvil-data:
+  resolver-data:
 

@@ -11,6 +11,7 @@ import { ethers } from 'ethers';
 import { PoolManager } from './types';
 import { hashPositionParams, PositionParams } from './hashing';
 import { encryptPositionParams, decryptPositionParams, EncryptedParams, generateDepositId } from './encryption';
+import { PersistentStorage } from './storage';
 
 interface Position {
   positionId: number;
@@ -23,14 +24,6 @@ interface Position {
   isNearLiquidation: boolean; // True if position is near liquidation threshold
 }
 
-interface PositionHealth {
-  positionId: string;
-  debtRatio: bigint;
-  liquidationThreshold: bigint;
-  isNearLiquidation: boolean;
-  teeCollateralTakeover: bigint; // Amount TEE should take if withdrawing near liquidation
-}
-
 interface LiquidationParams {
   pool: string;
   receiver: string;
@@ -38,7 +31,7 @@ interface LiquidationParams {
   maxStable: bigint;
 }
 
-interface StoredPositionParams {
+export interface StoredPositionParams {
   positionId: string;
   collateral: string;
   debt: string;
@@ -48,12 +41,20 @@ interface StoredPositionParams {
   pool?: string; // Pool address for position
 }
 
-interface EncryptedDepositParams {
+export interface EncryptedDepositParams {
   depositId: string;
   userAddress: string;
   depositIndex: number;
   encryptedParams: EncryptedParams;
   timestamp: number;
+}
+
+export interface PositionHealth {
+  positionId: string;
+  debtRatio: bigint;
+  liquidationThreshold: bigint;
+  isNearLiquidation: boolean;
+  teeCollateralTakeover: bigint; // Amount TEE should take if withdrawing near liquidation
 }
 
 export class ResolverService {
@@ -66,17 +67,8 @@ export class ResolverService {
   private liquidationThreshold: bigint;
   private server: any = null;
   
-  // Storage for position parameters (hashed)
-  // In production, this would be a secure database or TEE storage
-  private positionStorage: Map<string, StoredPositionParams> = new Map();
-  
-  // Storage for encrypted deposit parameters (before positions are created)
-  // Maps depositId -> encrypted parameters
-  private encryptedDepositStorage: Map<string, EncryptedDepositParams> = new Map();
-  
-  // Storage for position health monitoring (TEE holds all state)
-  // Maps positionId -> PositionHealth
-  private positionHealthStorage: Map<string, PositionHealth> = new Map();
+  // Persistent storage for all parameters (SQLite database)
+  private storage: PersistentStorage;
   
   // TEE encryption password (in production, this would be a secure key management system)
   private teeEncryptionPassword: string;
@@ -87,13 +79,19 @@ export class ResolverService {
     poolManagerAddress?: string,
     vaultAddress?: string,
     liquidationThreshold: bigint = ethers.parseUnits('1.0', 18), // 1.0 = 100% debt ratio threshold
-    teePassword?: string
+    teePassword?: string,
+    dbPath?: string
   ) {
     this.app = express();
     this.app.use(express.json());
     
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
     this.signer = new ethers.Wallet(privateKey, this.provider);
+    
+    // Initialize persistent storage
+    const storagePath = dbPath || process.env.DB_PATH || './tee-storage.db';
+    this.storage = new PersistentStorage(storagePath);
+    console.log(`Initialized persistent storage at: ${storagePath}`);
     
     // TEE encryption password (in production, this would come from secure key management)
     this.teeEncryptionPassword = teePassword || process.env.TEE_ENCRYPTION_PASSWORD || 'default-tee-password-change-in-production';
@@ -184,7 +182,7 @@ export class ResolverService {
           timestamp: Date.now(),
         };
         
-        this.positionStorage.set(params.position_id, stored);
+        this.storage.storePosition(stored);
         
         res.json({
           success: true,
@@ -207,7 +205,7 @@ export class ResolverService {
         }
         
         // Retrieve stored position parameters
-        const stored = this.positionStorage.get(position_id);
+        const stored = this.storage.getPosition(position_id);
         
         if (!stored) {
           return res.status(404).json({ error: 'Position not found' });
@@ -288,7 +286,7 @@ export class ResolverService {
           timestamp: Date.now(),
         };
         
-        this.encryptedDepositStorage.set(depositId, stored);
+        this.storage.storeEncryptedDeposit(stored);
         
         res.json({
           success: true,
@@ -333,7 +331,7 @@ export class ResolverService {
           timestamp: Date.now(),
         };
         
-        this.encryptedDepositStorage.set(depositId, stored);
+        this.storage.storeEncryptedDeposit(stored);
         
         res.json({
           success: true,
@@ -356,20 +354,23 @@ export class ResolverService {
           return res.status(400).json({ error: 'Missing or invalid depositIds array' });
         }
         
+        // Get all encrypted deposits at once
+        const storedDeposits = this.storage.getEncryptedDeposits(depositIds);
+        
+        if (storedDeposits.length !== depositIds.length) {
+          const foundIds = new Set(storedDeposits.map(d => d.depositId));
+          const missingIds = depositIds.filter(id => !foundIds.has(id));
+          return res.status(404).json({ error: `Deposits not found: ${missingIds.join(', ')}` });
+        }
+        
         const decryptedParams: Array<{ depositId: string; collateral: string; debt: string; owner: string }> = [];
         
-        for (const depositId of depositIds) {
-          const stored = this.encryptedDepositStorage.get(depositId);
-          
-          if (!stored) {
-            return res.status(404).json({ error: `Deposit ${depositId} not found` });
-          }
-          
+        for (const stored of storedDeposits) {
           // Decrypt parameters
           const params = decryptPositionParams(stored.encryptedParams, this.teeEncryptionPassword);
           
           decryptedParams.push({
-            depositId,
+            depositId: stored.depositId,
             collateral: params.collateral,
             debt: params.debt,
             owner: params.owner,
@@ -394,7 +395,7 @@ export class ResolverService {
           return res.status(400).json({ error: 'Missing depositId or positionId' });
         }
         
-        const stored = this.encryptedDepositStorage.get(depositId);
+        const stored = this.storage.getEncryptedDeposit(depositId);
         
         if (!stored) {
           return res.status(404).json({ error: 'Deposit not found' });
@@ -422,10 +423,10 @@ export class ResolverService {
           pool: poolAddress, // Store pool address for monitoring
         };
         
-        this.positionStorage.set(positionId.toString(), positionParams);
+        this.storage.storePosition(positionParams);
         
         // Remove from encrypted deposit storage (moved to position storage)
-        this.encryptedDepositStorage.delete(depositId);
+        this.storage.deleteEncryptedDeposit(depositId);
         
         res.json({
           success: true,
@@ -440,6 +441,19 @@ export class ResolverService {
     // Health check endpoint
     this.app.get('/health', (req: Request, res: Response) => {
       res.send('OK');
+    });
+    
+    // Stats endpoint - show storage statistics
+    this.app.get('/stats', (req: Request, res: Response) => {
+      try {
+        const stats = this.storage.getStats();
+        res.json({
+          success: true,
+          stats,
+        });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
     });
   }
 
@@ -463,9 +477,14 @@ export class ResolverService {
       return new Promise((resolve) => {
         this.server.close(() => {
           console.log('Resolver service stopped');
+          // Close storage connection
+          this.storage.close();
           resolve();
         });
       });
+    } else {
+      // Close storage if server wasn't running
+      this.storage.close();
     }
   }
 
@@ -565,7 +584,7 @@ export class ResolverService {
         
         for (const position of positions) {
           // Only execute if not already handled by monitorAllPositions
-          const health = this.positionHealthStorage.get(position.positionId.toString());
+          const health = this.storage.getPositionHealth(position.positionId.toString());
           if (!health || !health.isNearLiquidation) {
             console.log(`Liquidating position ${position.positionId} in pool ${pool}`);
             await this.executeLiquidation(position);
@@ -843,7 +862,7 @@ export class ResolverService {
         teeCollateralTakeover,
       };
       
-      this.positionHealthStorage.set(positionId, health);
+      this.storage.storePositionHealth(health);
 
       return health;
     } catch (error) {
@@ -867,18 +886,19 @@ export class ResolverService {
     console.log('TEE monitoring all positions for health...');
     
     // Get all stored positions
-    for (const [positionId, stored] of this.positionStorage.entries()) {
+    const allPositions = this.storage.getAllPositions();
+    for (const stored of allPositions) {
       try {
         const pool = stored.pool || process.env.POOL_ADDRESS || '';
         if (!pool) continue;
         
         // Check position health
-        await this.checkPositionHealth(positionId, pool);
+        await this.checkPositionHealth(stored.positionId, pool);
         
         // If position is near liquidation, execute soft liquidation
-        const health = this.positionHealthStorage.get(positionId);
+        const health = this.storage.getPositionHealth(stored.positionId);
         if (health && health.isNearLiquidation) {
-          console.log(`Position ${positionId} is near liquidation - executing soft liquidation`);
+          console.log(`Position ${stored.positionId} is near liquidation - executing soft liquidation`);
           
           // Get position details for liquidation
           const poolContract = new ethers.Contract(
@@ -887,7 +907,7 @@ export class ResolverService {
             this.provider
           );
           
-          const [rawColls, rawDebts] = await poolContract.getPosition(parseInt(positionId));
+          const [rawColls, rawDebts] = await poolContract.getPosition(parseInt(stored.positionId));
           
           // Execute soft liquidation via vault contract
           if (this.vaultContract) {
@@ -897,22 +917,22 @@ export class ResolverService {
             
             try {
               const tx = await this.vaultContract.executeSoftLiquidation(
-                positionId,
+                stored.positionId,
                 maxFxUSD,
                 maxStable,
                 { gasLimit: 500000 }
               );
               
-              console.log(`Soft liquidation transaction submitted for position ${positionId}: ${tx.hash}`);
+              console.log(`Soft liquidation transaction submitted for position ${stored.positionId}: ${tx.hash}`);
               await tx.wait();
-              console.log(`Soft liquidation executed for position ${positionId}`);
+              console.log(`Soft liquidation executed for position ${stored.positionId}`);
             } catch (error) {
-              console.error(`Failed to execute soft liquidation for position ${positionId}:`, error);
+              console.error(`Failed to execute soft liquidation for position ${stored.positionId}:`, error);
             }
           }
         }
       } catch (error) {
-        console.error(`Error monitoring position ${positionId}:`, error);
+        console.error(`Error monitoring position ${stored.positionId}:`, error);
       }
     }
   }

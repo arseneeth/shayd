@@ -270,8 +270,25 @@ export class ResolverService {
         }
         
         // Validate encrypted params structure
-        if (!encryptedParams.encrypted || !encryptedParams.iv || !encryptedParams.salt) {
-          return res.status(400).json({ error: 'Invalid encrypted parameters structure' });
+        if (!encryptedParams || typeof encryptedParams !== 'object') {
+          return res.status(400).json({ error: 'Invalid encrypted parameters: must be an object' });
+        }
+        
+        if (!encryptedParams.encrypted || typeof encryptedParams.encrypted !== 'string') {
+          return res.status(400).json({ error: 'Invalid encrypted parameters: missing or invalid encrypted field' });
+        }
+        
+        if (!encryptedParams.iv || typeof encryptedParams.iv !== 'string') {
+          return res.status(400).json({ error: 'Invalid encrypted parameters: missing or invalid IV field' });
+        }
+        
+        if (!encryptedParams.salt || typeof encryptedParams.salt !== 'string') {
+          return res.status(400).json({ error: 'Invalid encrypted parameters: missing or invalid salt field' });
+        }
+        
+        // Validate encrypted data format (should contain ':' separator for auth tag)
+        if (!encryptedParams.encrypted.includes(':')) {
+          return res.status(400).json({ error: 'Invalid encrypted parameters: encrypted data must include authentication tag' });
         }
         
         // Generate deposit ID
@@ -366,6 +383,11 @@ export class ResolverService {
         const decryptedParams: Array<{ depositId: string; collateral: string; debt: string; owner: string }> = [];
         
         for (const stored of storedDeposits) {
+          // Validate encrypted params structure before decrypting
+          if (!stored.encryptedParams || !stored.encryptedParams.encrypted || !stored.encryptedParams.iv || !stored.encryptedParams.salt) {
+            throw new Error(`Invalid encrypted parameters for deposit ${stored.depositId}: missing required fields`);
+          }
+          
           // Decrypt parameters
           const params = decryptPositionParams(stored.encryptedParams, this.teeEncryptionPassword);
           
@@ -399,6 +421,11 @@ export class ResolverService {
         
         if (!stored) {
           return res.status(404).json({ error: 'Deposit not found' });
+        }
+        
+        // Validate encrypted params structure
+        if (!stored.encryptedParams || !stored.encryptedParams.encrypted || !stored.encryptedParams.iv || !stored.encryptedParams.salt) {
+          return res.status(500).json({ error: 'Invalid encrypted parameters: missing required fields' });
         }
         
         // Decrypt to get original params

@@ -4,14 +4,18 @@
  * These tests verify:
  * 1. ROFL TEE can hash position parameters
  * 2. Contracts can verify TEE hashes
- * 3. Resolver can monitor and execute liquidations
+ * 3. Resolver encryption and storage endpoints
+ * 4. Operator bundling functionality
+ * 5. Position linking and retrieval
  */
 
 import { ethers } from 'ethers';
 import axios from 'axios';
+import { encryptPositionParams, decryptPositionParams } from '../../resolver/encryption';
 
 const RPC_URL = process.env.RPC_URL || 'http://localhost:8545';
 const RESOLVER_URL = process.env.RESOLVER_URL || 'http://localhost:3001';
+const TEE_PASSWORD = process.env.TEE_ENCRYPTION_PASSWORD || 'test-tee-password';
 
 describe('ROFL TEE and Resolver Integration', () => {
   let provider: ethers.Provider;
@@ -45,13 +49,23 @@ describe('ROFL TEE and Resolver Integration', () => {
     }
   });
 
-  describe('Resolver Service (ROFL TEE + Liquidation)', () => {
+  describe('Resolver Service Health and Stats', () => {
     it('should be healthy', async () => {
       const response = await resolverClient.get('/health');
       expect(response.status).toBe(200);
       expect(response.data).toBe('OK');
     });
 
+    it('should return storage statistics', async () => {
+      const response = await resolverClient.get('/stats');
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      expect(response.data.stats).toBeDefined();
+      expect(typeof response.data.stats).toBe('object');
+    });
+  });
+
+  describe('ROFL TEE Hashing', () => {
     it('should hash position parameters (ROFL TEE endpoint)', async () => {
       const positionParams = {
         position_id: '1',
@@ -82,78 +96,363 @@ describe('ROFL TEE and Resolver Integration', () => {
         expect(error.response.status).toBe(400);
       }
     });
-  });
 
-  describe('Position Creation with TEE Hash', () => {
-    it('should create position with TEE-verified hash', async () => {
-      // 1. Get hash from Resolver (ROFL TEE endpoint)
+    it('should produce consistent hashes for same parameters', async () => {
       const positionParams = {
-        position_id: '1',
-        collateral: '1000000000000000000',
-        debt: '500000000000000000',
+        position_id: '999',
+        collateral: '2000000000000000000',
+        debt: '1000000000000000000',
         owner: await signer.getAddress(),
       };
 
-      const hashResponse = await resolverClient.post('/hash', positionParams);
-      const hash = hashResponse.data.hash;
-
-      // 2. Create position on-chain with hash
-      // This would call your contract's createPosition function
-      // For now, we just verify the hash format
-      expect(hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      const response1 = await resolverClient.post('/hash', positionParams);
+      const response2 = await resolverClient.post('/hash', positionParams);
       
-      // In a real test, you would:
-      // const contract = new ethers.Contract(poolAddress, poolABI, signer);
-      // await contract.createPosition(positionParams, hash);
+      expect(response1.data.hash).toBe(response2.data.hash);
     });
   });
 
-  describe('Resolver Service', () => {
-    it('should be healthy', async () => {
-      // Assuming resolver has a health endpoint
-      // This would need to be implemented in the resolver service
-      expect(true).toBe(true); // Placeholder
+  describe('Encryption Endpoints', () => {
+    describe('Frontend Encryption (Privacy-First)', () => {
+      it('should store frontend-encrypted parameters', async () => {
+        const userAddress = await signer.getAddress();
+        const depositIndex = 0;
+        
+        // Simulate frontend encryption
+        const positionParams = {
+          position_id: '0', // Will be set later
+          collateral: '1000000000000000000',
+          debt: '500000000000000000',
+          owner: userAddress,
+        };
+        
+        const encryptedParams = encryptPositionParams(positionParams, TEE_PASSWORD);
+        
+        // Store encrypted parameters
+        const response = await resolverClient.post('/store-encrypted', {
+          userAddress,
+          depositIndex,
+          encryptedParams,
+        });
+        
+        expect(response.status).toBe(200);
+        expect(response.data.success).toBe(true);
+        expect(response.data.depositId).toBeDefined();
+        expect(typeof response.data.depositId).toBe('string');
+      });
+
+      it('should reject invalid encrypted parameter structure', async () => {
+        const userAddress = await signer.getAddress();
+        const depositIndex = 0;
+        
+        try {
+          await resolverClient.post('/store-encrypted', {
+            userAddress,
+            depositIndex,
+            encryptedParams: {
+              encrypted: 'invalid',
+              // Missing iv and salt
+            },
+          });
+          fail('Should have thrown an error');
+        } catch (error: any) {
+          expect(error.response.status).toBe(400);
+          expect(error.response.data.error).toContain('Invalid encrypted parameters');
+        }
+      });
+
+      it('should reject missing required parameters', async () => {
+        try {
+          await resolverClient.post('/store-encrypted', {
+            userAddress: await signer.getAddress(),
+            // Missing depositIndex and encryptedParams
+          });
+          fail('Should have thrown an error');
+        } catch (error: any) {
+          expect(error.response.status).toBe(400);
+        }
+      });
     });
 
-    it('should monitor positions for liquidation', async () => {
-      // This test would:
-      // 1. Create a position
-      // 2. Make it undercollateralized
-      // 3. Verify resolver detects it
-      // 4. Verify resolver executes liquidation
-      
-      // Placeholder for now
-      expect(true).toBe(true);
+    describe('Server-Side Encryption (Legacy)', () => {
+      it('should encrypt and store parameters (legacy endpoint)', async () => {
+        const userAddress = await signer.getAddress();
+        const depositIndex = 1;
+        const collateral = '2000000000000000000';
+        const debt = '1000000000000000000';
+        
+        const response = await resolverClient.post('/encrypt-and-store', {
+          userAddress,
+          depositIndex,
+          collateral,
+          debt,
+        });
+        
+        expect(response.status).toBe(200);
+        expect(response.data.success).toBe(true);
+        expect(response.data.depositId).toBeDefined();
+        expect(response.data.encrypted).toBeDefined();
+        expect(response.data.encrypted).toContain('...'); // Partial encryption shown
+      });
+
+      it('should reject missing parameters in legacy endpoint', async () => {
+        try {
+          await resolverClient.post('/encrypt-and-store', {
+            userAddress: await signer.getAddress(),
+            // Missing depositIndex, collateral, debt
+          });
+          fail('Should have thrown an error');
+        } catch (error: any) {
+          expect(error.response.status).toBe(400);
+        }
+      });
     });
   });
 
-  describe('End-to-End Flow', () => {
-    it('should complete full position lifecycle', async () => {
-      // 1. User creates position params
+  describe('Operator Bundling Functionality', () => {
+    let depositIds: string[] = [];
+
+    beforeEach(async () => {
+      // Setup: Create 3 encrypted deposits for testing
+      depositIds = [];
+      const userAddress = await signer.getAddress();
+      
+      for (let i = 0; i < 3; i++) {
+        const positionParams = {
+          position_id: '0',
+          collateral: `${(i + 1) * 1000000000000000000}`,
+          debt: `${(i + 1) * 500000000000000000}`,
+          owner: userAddress,
+        };
+        
+        const encryptedParams = encryptPositionParams(positionParams, TEE_PASSWORD);
+        
+        const response = await resolverClient.post('/store-encrypted', {
+          userAddress,
+          depositIndex: i,
+          encryptedParams,
+        });
+        
+        depositIds.push(response.data.depositId);
+      }
+    });
+
+    it('should get decrypted parameters for bundle (operator endpoint)', async () => {
+      const response = await resolverClient.post('/get-params-for-bundle', {
+        depositIds: depositIds.slice(0, 2), // Get first 2 deposits
+      });
+      
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      expect(response.data.params).toBeDefined();
+      expect(Array.isArray(response.data.params)).toBe(true);
+      expect(response.data.params.length).toBe(2);
+      
+      // Verify decrypted parameters
+      const params = response.data.params[0];
+      expect(params).toHaveProperty('depositId');
+      expect(params).toHaveProperty('collateral');
+      expect(params).toHaveProperty('debt');
+      expect(params).toHaveProperty('owner');
+      expect(params.collateral).toBe('1000000000000000000');
+      expect(params.debt).toBe('500000000000000000');
+    });
+
+    it('should reject missing depositIds array', async () => {
+      try {
+        await resolverClient.post('/get-params-for-bundle', {
+          depositIds: null,
+        });
+        fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.response.status).toBe(400);
+      }
+    });
+
+    it('should reject empty depositIds array', async () => {
+      try {
+        await resolverClient.post('/get-params-for-bundle', {
+          depositIds: [],
+        });
+        fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.response.status).toBe(400);
+      }
+    });
+
+    it('should return 404 for non-existent deposit IDs', async () => {
+      try {
+        await resolverClient.post('/get-params-for-bundle', {
+          depositIds: ['non-existent-id-1', 'non-existent-id-2'],
+        });
+        fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.response.status).toBe(404);
+        expect(error.response.data.error).toContain('Deposits not found');
+      }
+    });
+
+    it('should return 404 for partially missing deposit IDs', async () => {
+      try {
+        await resolverClient.post('/get-params-for-bundle', {
+          depositIds: [depositIds[0], 'non-existent-id'],
+        });
+        fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.response.status).toBe(404);
+        expect(error.response.data.error).toContain('Deposits not found');
+      }
+    });
+  });
+
+  describe('Position Linking', () => {
+    let depositId: string;
+
+    beforeEach(async () => {
+      // Setup: Create an encrypted deposit
+      const userAddress = await signer.getAddress();
       const positionParams = {
-        position_id: '1',
+        position_id: '0',
         collateral: '1000000000000000000',
         debt: '500000000000000000',
-        owner: await signer.getAddress(),
+        owner: userAddress,
       };
+      
+      const encryptedParams = encryptPositionParams(positionParams, TEE_PASSWORD);
+      
+      const response = await resolverClient.post('/store-encrypted', {
+        userAddress,
+        depositIndex: 0,
+        encryptedParams,
+      });
+      
+      depositId = response.data.depositId;
+    });
 
-      // 2. Resolver (ROFL TEE) hashes parameters
-      const hashResponse = await resolverClient.post('/hash', positionParams);
-      const hash = hashResponse.data.hash;
+    it('should link deposit to position ID', async () => {
+      const positionId = '12345';
+      
+      const response = await resolverClient.post('/link-position', {
+        depositId,
+        positionId,
+      });
+      
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      expect(response.data.positionId).toBe(positionId);
+      expect(response.data.hash).toBeDefined();
+      expect(response.data.hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    });
 
-      // 3. Position created on-chain with hash verification
-      // (Would call contract here)
+    it('should reject missing depositId or positionId', async () => {
+      try {
+        await resolverClient.post('/link-position', {
+          depositId: depositId,
+          // Missing positionId
+        });
+        fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.response.status).toBe(400);
+      }
+    });
 
-      // 4. Resolver monitors position
-      // (Would verify resolver is monitoring)
+    it('should reject non-existent deposit ID', async () => {
+      try {
+        await resolverClient.post('/link-position', {
+          depositId: 'non-existent-deposit-id',
+          positionId: '12345',
+        });
+        fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.response.status).toBe(404);
+        expect(error.response.data.error).toContain('Deposit not found');
+      }
+    });
 
-      // 5. Position becomes liquidatable
-      // (Would manipulate position to be undercollateralized)
+    it('should create position entry after linking', async () => {
+      const positionId = '99999';
+      
+      // Link deposit to position
+      await resolverClient.post('/link-position', {
+        depositId,
+        positionId,
+      });
+      
+      // Verify position can be retrieved
+      const getParamsResponse = await resolverClient.post('/get-params', {
+        position_id: positionId,
+        owner: await signer.getAddress(),
+      });
+      
+      expect(getParamsResponse.status).toBe(200);
+      expect(getParamsResponse.data.position_id).toBe(positionId);
+      expect(getParamsResponse.data.collateral).toBe('1000000000000000000');
+      expect(getParamsResponse.data.debt).toBe('500000000000000000');
+    });
+  });
 
-      // 6. Resolver executes liquidation
-      // (Would verify liquidation was executed)
-
-      expect(hash).toBeDefined();
+  describe('End-to-End Operator Flow', () => {
+    it('should complete full operator bundling flow', async () => {
+      const userAddress = await signer.getAddress();
+      const depositIds: string[] = [];
+      
+      // Step 1: Users deposit and encrypt parameters (frontend encryption)
+      for (let i = 0; i < 3; i++) {
+        const positionParams = {
+          position_id: '0',
+          collateral: `${(i + 1) * 1000000000000000000}`,
+          debt: `${(i + 1) * 500000000000000000}`,
+          owner: userAddress,
+        };
+        
+        const encryptedParams = encryptPositionParams(positionParams, TEE_PASSWORD);
+        
+        const storeResponse = await resolverClient.post('/store-encrypted', {
+          userAddress,
+          depositIndex: i,
+          encryptedParams,
+        });
+        
+        depositIds.push(storeResponse.data.depositId);
+      }
+      
+      expect(depositIds.length).toBe(3);
+      
+      // Step 2: Operator gets decrypted parameters for bundle
+      const bundleResponse = await resolverClient.post('/get-params-for-bundle', {
+        depositIds,
+      });
+      
+      expect(bundleResponse.status).toBe(200);
+      expect(bundleResponse.data.params.length).toBe(3);
+      
+      // Step 3: Operator creates positions (simulated - would call contract)
+      // In real flow, operator would call BundledVault.createPositionsFromBundle()
+      // with the decrypted parameters
+      
+      // Step 4: Operator links deposits to position IDs
+      for (let i = 0; i < depositIds.length; i++) {
+        const positionId = String(i + 1000);
+        const linkResponse = await resolverClient.post('/link-position', {
+          depositId: depositIds[i],
+          positionId,
+        });
+        
+        expect(linkResponse.status).toBe(200);
+        expect(linkResponse.data.positionId).toBe(positionId);
+      }
+      
+      // Step 5: Verify positions can be retrieved
+      for (let i = 0; i < 3; i++) {
+        const positionId = String(i + 1000);
+        const getParamsResponse = await resolverClient.post('/get-params', {
+          position_id: positionId,
+          owner: userAddress,
+        });
+        
+        expect(getParamsResponse.status).toBe(200);
+        expect(getParamsResponse.data.position_id).toBe(positionId);
+      }
     });
   });
 });

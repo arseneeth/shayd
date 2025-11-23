@@ -33,13 +33,27 @@ WORKDIR /app/scaffold/packages/foundry
 # Install Foundry dependencies (if not already installed)
 RUN forge install || true
 
-# Pre-install solc 0.8.30 to avoid rate limiting issues during deployment
-# Use timeout and retries, but don't fail the build if it doesn't work
+# Pre-install solc versions to avoid rate limiting issues during deployment
+# Try multiple versions with retries and delays to handle rate limiting
 # (forge will try to install it during compilation if needed)
 RUN if command -v svm >/dev/null 2>&1; then \
-    echo "Attempting to pre-install solc 0.8.30..." && \
-    timeout 60 svm install 0.8.30 2>&1 || \
-    (echo "Warning: Could not pre-install solc 0.8.30 (may be rate limited). Forge will install it during compilation if needed." && true); \
+    echo "Attempting to pre-install solc versions..." && \
+    for version in 0.8.26 0.8.28 0.8.30; do \
+        echo "Trying to install solc $version..." && \
+        for attempt in 1 2 3; do \
+            if timeout 120 svm install $version 2>&1; then \
+                echo "Successfully installed solc $version" && \
+                break; \
+            else \
+                if [ $attempt -lt 3 ]; then \
+                    echo "Attempt $attempt failed for solc $version, waiting 30 seconds before retry..." && \
+                    sleep 30; \
+                else \
+                    echo "Warning: Could not install solc $version after 3 attempts (may be rate limited)"; \
+                fi; \
+            fi; \
+        done; \
+    done; \
     else \
     echo "svm not found, forge will install solc during compilation if needed"; \
     fi

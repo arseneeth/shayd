@@ -50,7 +50,7 @@ contract DeployMockTokens is Script {
         vm.stopBroadcast();
 
         // Export addresses
-        string memory json = "deployment";
+        string memory json = "";
         json = vm.serializeAddress(json, "fxUSD", address(fxUSD));
         json = vm.serializeAddress(json, "usdc", address(usdc));
         json = vm.serializeAddress(json, "aavePool", address(aavePool));

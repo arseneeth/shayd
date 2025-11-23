@@ -11,6 +11,7 @@
 
 import { ethers } from 'ethers';
 import axios from 'axios';
+import { encryptPositionParams } from '../../resolver/encryption';
 
 const RPC_URL = process.env.RPC_URL || 'http://localhost:8545';
 const RESOLVER_URL = process.env.RESOLVER_URL || 'http://localhost:3001';
@@ -88,6 +89,13 @@ describe('Bundled Vault Integration', () => {
       expect(response.data).toBe('OK');
     });
 
+    it('should return storage statistics', async () => {
+      const response = await resolverClient.get('/stats');
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      expect(response.data.stats).toBeDefined();
+    });
+
     it('should hash position parameters', async () => {
       const positionParams = {
         position_id: '1',
@@ -116,6 +124,43 @@ describe('Bundled Vault Integration', () => {
       expect(response.status).toBe(200);
       expect(response.data.success).toBe(true);
       expect(response.data.hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    });
+
+    it('should store encrypted parameters (frontend encryption)', async () => {
+      const TEE_PASSWORD = process.env.TEE_ENCRYPTION_PASSWORD || 'test-tee-password';
+      
+      const positionParams = {
+        position_id: '0',
+        collateral: '1000000000000000000',
+        debt: '500000000000000000',
+        owner: await signers[0].getAddress(),
+      };
+      
+      const encryptedParams = encryptPositionParams(positionParams, TEE_PASSWORD);
+      
+      const response = await resolverClient.post('/store-encrypted', {
+        userAddress: await signers[0].getAddress(),
+        depositIndex: 0,
+        encryptedParams,
+      });
+      
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      expect(response.data.depositId).toBeDefined();
+    });
+
+    it('should encrypt and store parameters (legacy endpoint)', async () => {
+      const response = await resolverClient.post('/encrypt-and-store', {
+        userAddress: await signers[0].getAddress(),
+        depositIndex: 1,
+        collateral: '2000000000000000000',
+        debt: '1000000000000000000',
+      });
+      
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      expect(response.data.depositId).toBeDefined();
+      expect(response.data.encrypted).toBeDefined();
     });
 
     it('should retrieve position parameters for owner with health check', async () => {
@@ -229,6 +274,86 @@ describe('Bundled Vault Integration', () => {
       // 2. Operator calls createPositionsFromBundle with parameters from resolver TEE
       // 3. Positions are created using original fx protocol's operate() function
       // 4. Position parameters are stored encrypted in resolver
+    });
+  });
+
+  describe('Operator Bundling Flow with Resolver', () => {
+    it('should complete operator bundling workflow', async () => {
+      // This test verifies the complete operator workflow:
+      // 1. Users encrypt and store parameters in resolver
+      // 2. Operator retrieves decrypted parameters from resolver
+      // 3. Operator creates positions (simulated)
+      // 4. Operator links deposits to position IDs
+      
+      const userAddress = await signers[0].getAddress();
+      const depositIds: string[] = [];
+      
+      // Step 1: Users encrypt parameters and store in resolver
+      for (let i = 0; i < 3; i++) {
+        const positionParams = {
+          position_id: '0',
+          collateral: `${(i + 1) * 1000000000000000000}`,
+          debt: `${(i + 1) * 500000000000000000}`,
+          owner: userAddress,
+        };
+        
+        // Use encryption function (would be from frontend in production)
+        const TEE_PASSWORD = process.env.TEE_ENCRYPTION_PASSWORD || 'test-tee-password';
+        const encryptedParams = encryptPositionParams(positionParams, TEE_PASSWORD);
+        
+        const storeResponse = await resolverClient.post('/store-encrypted', {
+          userAddress,
+          depositIndex: i,
+          encryptedParams,
+        });
+        
+        expect(storeResponse.status).toBe(200);
+        depositIds.push(storeResponse.data.depositId);
+      }
+      
+      // Step 2: Operator gets decrypted parameters for bundle
+      const bundleResponse = await resolverClient.post('/get-params-for-bundle', {
+        depositIds,
+      });
+      
+      expect(bundleResponse.status).toBe(200);
+      expect(bundleResponse.data.success).toBe(true);
+      expect(bundleResponse.data.params.length).toBe(3);
+      
+      // Verify decrypted parameters match original
+      expect(bundleResponse.data.params[0].collateral).toBe('1000000000000000000');
+      expect(bundleResponse.data.params[0].debt).toBe('500000000000000000');
+      expect(bundleResponse.data.params[0].owner.toLowerCase()).toBe(userAddress.toLowerCase());
+      
+      // Step 3: Operator would call createPositionsFromBundle() here
+      // (Simulated - would require actual contract deployment and operator role)
+      
+      // Step 4: Operator links deposits to position IDs
+      for (let i = 0; i < depositIds.length; i++) {
+        const positionId = String(i + 5000);
+        const linkResponse = await resolverClient.post('/link-position', {
+          depositId: depositIds[i],
+          positionId,
+        });
+        
+        expect(linkResponse.status).toBe(200);
+        expect(linkResponse.data.success).toBe(true);
+        expect(linkResponse.data.positionId).toBe(positionId);
+        expect(linkResponse.data.hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      }
+    });
+
+    it('should handle operator bundling with missing deposits', async () => {
+      // Test error handling when operator requests non-existent deposits
+      try {
+        await resolverClient.post('/get-params-for-bundle', {
+          depositIds: ['non-existent-1', 'non-existent-2'],
+        });
+        fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.response.status).toBe(404);
+        expect(error.response.data.error).toContain('Deposits not found');
+      }
     });
   });
   

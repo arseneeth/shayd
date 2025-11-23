@@ -1,4 +1,4 @@
-# Shadow Splitter: Privacy-First DeFi Yield Platform
+# Shayd: Privacy-First Leveraged Trading/Yield Generation Platform
 
 ## System Architecture
 
@@ -9,14 +9,14 @@ graph TB
     end
     
     subgraph PRIVACY["🔒 PRIVACY & SECURITY"]
-        B["Private Mempool<br/>• Flashbots/Argent RPC<br/>• Prevents MEV extraction<br/>• Bypasses public mempool"]
-        C["Position Obfuscation<br/>• Noise injection<br/>• Address scattering<br/>• Encrypted parameters"]
+        B["Frontend Encryption<br/>• User encrypts parameters<br/>• AES-256-GCM encryption<br/>• Never sent in plaintext"]
+        C["Oasis ROFL TEE<br/>• Stores encrypted parameters<br/>• Decrypts for operator only<br/>• Liquidation prices private"]
     end
     
     subgraph CORE["💰 CORE VAULT SYSTEM"]
-        D["ETH → eETH Swap<br/>• DEX integration<br/>• Atomic transactions<br/>• 1inch/Uniswap"]
-        E["Leveraged Yield Farming<br/>• Automated rebalancing<br/>• Risk management<br/>• Multiple strategies"]
-        F["Yield Generation<br/>• Lending protocols<br/>• Trading strategies<br/>• Cross-DEX arbitrage"]
+        D["BundledVault<br/>• Accepts ETH deposits<br/>• Bundles 10 positions<br/>• Atomic flash loan bundle"]
+        E["Atomic Position Creation<br/>• Flash loan<br/>• Open all 10 positions<br/>• Repay flash loan<br/>• Single transaction"]
+        F["Forked f(x) Protocol<br/>• Pool Manager<br/>• Position management<br/>• Soft liquidations only"]
     end
     
     subgraph REVENUE["📈 REVENUE & DISTRIBUTION"]
@@ -33,12 +33,12 @@ graph TB
     end
     
     %% Main flow
-    A -->|"1. Private submission"| B
-    B -->|"2. Encrypted bundle"| C
-    C -->|"3. ETH deposit"| D
-    D -->|"4. eETH tokens"| E
-    E -->|"5. Yield strategies"| F
-    F -->|"6. Generated yield"| G
+    A -->|"1. Deposit ETH"| D
+    A -->|"2. Encrypt params (frontend)"| B
+    B -->|"3. Store encrypted"| C
+    C -->|"4. Bundle ready (10 deposits)"| E
+    E -->|"5. Atomic: Flash loan + Open positions + Repay"| F
+    F -->|"6. Positions created<br/>(liquidation prices private)"| G
     G -->|"7. User rewards"| H
     
     %% Risk management loop
@@ -69,63 +69,72 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant U as 👤 User
-    participant P as 🔒 Privacy Layer
-    participant V as 💰 Vault Core
-    participant D as 🦄 DEXs
-    participant L as 🏦 Lending Protocols
+    participant F as 🌐 Frontend
+    participant T as 🔒 Oasis ROFL TEE
+    participant V as 💰 BundledVault
+    participant FL as 💸 Flash Loan
+    participant P as 🏦 Pool Manager (f(x))
     
-    Note over U,L: User Deposit & Privacy Protection
-    U->>P: 1. Submit ETH + leverage params<br/>(via private mempool)
-    P->>P: 2. Obfuscate position with noise<br/>(address scattering)
-    P->>V: 3. Deposit ETH (encrypted bundle)
+    Note over U,P: User Deposit & Frontend Encryption
+    U->>F: 1. Deposit ETH + set params<br/>(collateral, debt, owner)
+    F->>F: 2. Encrypt position params<br/>(AES-256-GCM, frontend)
+    F->>T: 3. Store encrypted params<br/>(resolver never sees plaintext)
+    U->>V: 4. Deposit ETH transaction
     
-    Note over U,L: Yield Strategy Execution
-    V->>D: 4. Swap ETH → eETH<br/>(atomic transaction)
-    V->>L: 5. Borrow additional ETH<br/>(leverage up)
-    V->>D: 6. Buy more eETH + noise trades<br/>(obfuscate strategy)
-    V->>L: 7. Lend eETH for yield<br/>(multiple protocols)
+    Note over U,P: Bundle & Atomic Position Creation
+    V->>V: 5. Wait for 10 deposits<br/>(bundle ready)
+    V->>T: 6. Operator requests params<br/>(for bundle)
+    T->>T: 7. Decrypt in TEE<br/>(operator only, liquidation prices private)
+    T->>V: 8. Return decrypted params<br/>(for position creation)
+    V->>FL: 9. Take flash loan<br/>(atomic transaction starts)
+    V->>P: 10. Open all 10 positions<br/>(same transaction)
+    V->>FL: 11. Repay flash loan<br/>(same transaction)
+    V->>V: 12. Positions created<br/>(liquidation prices remain private)
     
-    Note over U,L: Monitoring & Distribution
-    V->>V: 8. Monitor & rebalance positions<br/>(risk management)
-    V->>U: 9. Distribute f/x tokens + yield<br/>(governance rights)
+    Note over U,P: Withdrawal
+    U->>V: 13. Request withdrawal
+    V->>T: 14. Request encrypted params
+    T->>U: 15. Return encrypted params<br/>(user decrypts on frontend)
+    U->>V: 16. Close position<br/>(with decrypted params)
 ```
 
-## Privacy Mechanism & Off-Chain Relayer
+## Privacy Mechanism & Atomic Bundling
 
 ```mermaid
 sequenceDiagram
     participant U as 👤 User
-    participant W as 🌐 Wallet (Ethers.js)
-    participant R as 🔄 Off-Chain Relayer
-    participant M as 🔒 Private Mempool
-    participant C as 💰 Vault Contract
-    participant D as 🦄 DEXs
+    participant F as 🌐 Frontend
+    participant T as 🔒 Oasis ROFL TEE
+    participant O as 👷 Operator
+    participant V as 💰 BundledVault
+    participant FL as 💸 Flash Loan
+    participant P as 🏦 Pool Manager (f(x))
     
-    Note over U,D: Phase 1: Private Commitment Creation
-    U->>W: 1. Set leverage params<br/>(leverage, salt, breakpoint)
-    W->>W: 2. Generate blinded commitment<br/>hash = keccak256(params + salt)
-    W->>R: 3. Submit encrypted params<br/>(via private channel)
-    W->>M: 4. Submit hashed commitment<br/>(via Flashbots/Argent RPC)
+    Note over U,P: Phase 1: Deposit & Frontend Encryption
+    U->>F: 1. Deposit ETH + set params<br/>(collateral, debt, owner)
+    F->>F: 2. Encrypt position params<br/>(AES-256-GCM, frontend)
+    F->>T: 3. Store encrypted params<br/>(resolver never sees plaintext)
+    U->>V: 4. Deposit ETH transaction
     
-    Note over U,D: Phase 2: Off-Chain Processing
-    R->>R: 5. Decrypt user parameters<br/>(leverage, breakpoint)
-    R->>R: 6. Compute aggregate signals<br/>(total leverage, risk metrics)
-    R->>R: 7. Generate rebalance triggers<br/>(if needed)
+    Note over U,P: Phase 2: Bundle Ready (10 deposits)
+    V->>V: 5. Collect 10 deposits<br/>(bundle ready)
+    V->>O: 6. Bundle ready event
     
-    Note over U,D: Phase 3: Private Transaction Execution
-    M->>C: 8. Execute blinded transaction<br/>(no params visible on-chain)
-    C->>C: 9. Decrypt parameters<br/>(only during execution)
-    C->>D: 10. Execute swaps with noise<br/>(obfuscated amounts)
-    C->>C: 11. Clear sensitive data<br/>(never persist in logs)
+    Note over U,P: Phase 3: Atomic Position Creation
+    O->>T: 7. Request encrypted params<br/>(for bundle)
+    T->>T: 8. Decrypt in TEE<br/>(operator only)
+    T->>O: 9. Return decrypted params<br/>(liquidation prices private)
+    O->>FL: 10. Take flash loan<br/>(atomic transaction starts)
+    O->>V: 11. createPositionsFromBundle()<br/>(all in one transaction)
+    V->>P: 12. Open position 1<br/>(flash loan active)
+    V->>P: 13. Open positions 2-10<br/>(same transaction)
+    V->>FL: 14. Repay flash loan<br/>(same transaction)
+    V->>V: 15. All positions created<br/>(atomic bundle complete)
     
-    Note over U,D: Phase 4: Position Management
-    R->>R: 12. Monitor aggregate positions<br/>(off-chain risk management)
-    R->>M: 13. Trigger rebalancing<br/>(if risk thresholds exceeded)
-    M->>C: 14. Execute rebalance<br/>(with noise injection)
-    
-    Note over U,D: Privacy Protection
-    Note over M: MEV Bots see only:<br/>• Blinded hash (no params)<br/>• Random transaction timing<br/>• Obfuscated amounts
-    Note over C: Contract stores only:<br/>• Encrypted parameters<br/>• Public yield data<br/>• No leverage details
+    Note over U,P: Privacy Protection
+    Note over F: Frontend encrypts:<br/>• Position parameters<br/>• Never sent plaintext<br/>• User controls encryption
+    Note over T: TEE stores:<br/>• Encrypted parameters<br/>• Decrypts for operator only<br/>• Liquidation prices private
+    Note over V: On-chain sees only:<br/>• Final position state<br/>• Not individual params<br/>• Liquidation prices hidden
 ```
 
 ## Privacy Architecture Details
@@ -137,20 +146,18 @@ graph LR
         B["Ethers.js Wallet<br/>Generate commitment<br/>Sign transaction<br/>Submit to relayer"]
     end
     
-    subgraph RELAYER["🔄 OFF-CHAIN RELAYER"]
-        C["Parameter Decryption<br/>Decrypt user params<br/>Validate leverage<br/>Check risk limits"]
-        D["Aggregate Computation<br/>Total TVL calculation<br/>Risk metrics<br/>Rebalance signals"]
-        E["Transaction Generation<br/>Create blinded tx<br/>Add noise parameters<br/>Submit to private mempool"]
+    subgraph TEE["🔒 OASIS ROFL TEE"]
+        C["Encrypted Storage<br/>Store encrypted params<br/>Decrypt for operator only<br/>Liquidation prices private"]
     end
     
-    subgraph PRIVACY["🔒 PRIVACY LAYER"]
-        F["Private Mempool<br/>Flashbots/Argent RPC<br/>No public visibility<br/>Random ordering"]
-        G["Noise Injection<br/>±1-5% amount jitter<br/>Timing delays<br/>Dummy transactions"]
+    subgraph OPERATOR["👷 OPERATOR"]
+        F["Position Creation<br/>Request encrypted params<br/>Decrypt in TEE<br/>Execute atomic bundle"]
+        G["Flash Loan Bundle<br/>Take flash loan<br/>Open all positions<br/>Repay in one transaction"]
     end
     
     subgraph ONCHAIN["⛓️ ON-CHAIN EXECUTION"]
-        H["Vault Contract<br/>Decrypt params<br/>Execute strategy<br/>Clear sensitive data"]
-        I["DEX Integration<br/>Atomic swaps<br/>Obfuscated amounts<br/>Multiple protocols"]
+        H["BundledVault<br/>Accept deposits<br/>Bundle 10 positions<br/>Atomic flash loan bundle"]
+        I["Pool Manager (f(x))<br/>Position operations<br/>Debt/collateral management<br/>Soft liquidations"]
     end
     
     subgraph THREATS["🚫 EXTERNAL THREATS"]
@@ -159,15 +166,15 @@ graph LR
     end
     
     %% Main flow
-    A -->|"1"| B
-    B -->|"2"| C
-    B -->|"3"| F
-    C -->|"4"| D
-    D -->|"5"| E
-    E -->|"6"| F
-    F -->|"7"| G
-    G -->|"8"| H
-    H -->|"9"| I
+    A -->|"1. Deposit ETH"| H
+    A -->|"2. Encrypt params"| B
+    B -->|"3. Store encrypted"| C
+    C -->|"4. Bundle ready"| F
+    F -->|"5. Request params"| C
+    C -->|"6. Decrypt in TEE"| F
+    F -->|"7. Atomic bundle"| G
+    G -->|"8. Flash loan + Open positions + Repay"| H
+    H -->|"9. Positions created"| I
     
     %% Threat interactions
     J -.->|"Blocked"| F
@@ -175,48 +182,51 @@ graph LR
     
     %% Styling
     classDef userStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
-    classDef relayerStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px,color:#000
-    classDef privacyStyle fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px,color:#000
+    classDef teeStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px,color:#000
+    classDef operatorStyle fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px,color:#000
     classDef onchainStyle fill:#fff3e0,stroke:#f57c00,stroke-width:3px,color:#000
     classDef threatStyle fill:#ffebee,stroke:#d32f2f,stroke-width:2px,color:#000
     
     class A,B userStyle
-    class C,D,E relayerStyle
-    class F,G privacyStyle
+    class C teeStyle
+    class F,G operatorStyle
     class H,I onchainStyle
     class J,K threatStyle
 ```
 
 ## Core Concept
 
-**Shadow Splitter** solves the fundamental MEV problem in DeFi yield farming by implementing privacy-preserving leveraged strategies that are invisible to frontrunners while maintaining regulatory compliance.
+**Shayd** solves the fundamental MEV problem in leveraged trading/yield generation by implementing privacy-preserving leveraged strategies that are invisible to frontrunners while maintaining regulatory compliance.
 
-### Key Innovation: Privacy-First Yield Farming
+### Key Innovation: Privacy-First Leveraged Trading/Yield Generation
 
 **Problem**: Traditional DeFi yield strategies are vulnerable to MEV extraction because:
 - All transactions are visible in the public mempool
 - Bots can frontrun profitable positions
 - Users lose 10-30% of potential returns to MEV
 
-**Solution**: Multi-layer privacy architecture:
-1. **Private Mempool Submission**: Uses Flashbots/Argent RPC to bypass public mempool
-2. **Position Obfuscation**: Noise injection and address scattering hide individual strategies
-3. **Encrypted Storage**: Sensitive parameters never persist in logs
-4. **Off-chain Computation**: Leverage calculations happen privately
+**Solution**: Privacy-first architecture:
+1. **Frontend Encryption**: Users encrypt position parameters before sending to resolver
+2. **TEE Storage**: Encrypted parameters stored in TEE, resolver never sees plaintext
+3. **Atomic Bundling**: Flash loan + Open all 10 positions + Repay in single transaction
+4. **Liquidation Prices Private**: Only TEE knows position parameters; on-chain only sees final state
+5. **Soft Liquidations**: Positions can be partially liquidated, no hard liquidations
 
 ### Technical Implementation
 
 **Architecture Layers**:
-- **Privacy Layer**: Private RPC + position obfuscation + noise injection
-- **Vault Core**: Automated leveraged yield farming with encrypted storage
+- **Frontend Layer**: User-side encryption (AES-256-GCM) before sending to resolver
+- **TEE Layer**: Oasis ROFL TEE for encrypted parameter storage and operator decryption
+- **Vault Core**: BundledVault with atomic flash loan bundling (forked f(x) protocol)
+- **Resolver Layer**: Automated soft liquidation execution and position monitoring
 - **Monitoring Layer**: Risk management and position monitoring
 
 **Key Technical Features**:
-- **UUPS Proxy Pattern**: Upgradeable contracts with encrypted storage
-- **Noise Injection Engine**: Random amount generation (±1-5% offsets)
-- **Address Scattering**: Opaque predicates mask control flow
-- **Timing Noise**: Jittered execution prevents correlation attacks
-- **XOR Encryption**: Critical parameters encrypted at rest
+- **Frontend Encryption**: Position parameters encrypted before leaving user's device
+- **Atomic Bundling**: Flash loan + position opening + repayment in single transaction
+- **Privacy Protection**: Liquidation prices only known to TEE, on-chain sees final state only
+- **Forked f(x) Protocol**: Direct fork with soft liquidation support
+- **No Hard Liquidations**: Positions can be partially liquidated to restore health
 
 ### Revenue Model
 
@@ -240,7 +250,7 @@ graph LR
 **Competitive Moat**:
 - Technical complexity of privacy implementation
 - Network effects from private mempool usage
-- First-mover advantage in privacy-preserving yield farming
+- First-mover advantage in privacy-first leveraged trading/yield generation
 - MEV protection creates sustainable advantage
 
 ### Risk Management

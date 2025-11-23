@@ -18,4 +18,12 @@ contract MockERC20 is ERC20 {
   function mint(address _recipient, uint256 _amount) external {
     _mint(_recipient, _amount);
   }
+
+  function burn(address _account, uint256 _amount) external {
+    _burn(_account, _amount);
+  }
+
+  function onRebalanceWithStable(uint256, uint256) external {
+    // Mock implementation for IFxUSDRegeneracy interface
+  }
 }

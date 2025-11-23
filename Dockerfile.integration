@@ -33,6 +33,17 @@ WORKDIR /app/scaffold/packages/foundry
 # Install Foundry dependencies (if not already installed)
 RUN forge install || true
 
+# Pre-install solc 0.8.30 to avoid rate limiting issues during deployment
+# Use timeout and retries, but don't fail the build if it doesn't work
+# (forge will try to install it during compilation if needed)
+RUN if command -v svm >/dev/null 2>&1; then \
+    echo "Attempting to pre-install solc 0.8.30..." && \
+    timeout 60 svm install 0.8.30 2>&1 || \
+    (echo "Warning: Could not pre-install solc 0.8.30 (may be rate limited). Forge will install it during compilation if needed." && true); \
+    else \
+    echo "svm not found, forge will install solc during compilation if needed"; \
+    fi
+
 WORKDIR /app
 
 # Verify package.json exists and show npm scripts
@@ -45,5 +56,6 @@ RUN chmod +x ./tests/integration/simple-test.sh
 # Run integration tests - deployment happens in docker-compose command
 WORKDIR /app
 ENTRYPOINT []
-CMD ["/bin/sh", "-c", "cd /app && ./tests/integration/simple-test.sh || npm run test:integration"]
+# Use npx to ensure jest is found in PATH
+CMD ["/bin/sh", "-c", "cd /app && ./tests/integration/simple-test.sh || npx jest --config jest.config.js tests/integration"]
 

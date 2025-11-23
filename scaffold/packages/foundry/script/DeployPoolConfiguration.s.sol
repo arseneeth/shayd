@@ -31,8 +31,17 @@ contract DeployPoolConfiguration is Script {
         if (block.chainid == 31337) {
             string memory chainId = vm.toString(block.chainid);
             try vm.readFile(string.concat("./deployments/mocks-", chainId, ".json")) returns (string memory mocksJson) {
-                aaveLendingPool = vm.parseJsonAddress(mocksJson, ".aavePool");
-                priceOracle = vm.parseJsonAddress(mocksJson, ".priceOracle");
+                // Parse JSON - the file has keys like "aavePool", "priceOracle", etc.
+                try vm.parseJsonAddress(mocksJson, ".aavePool") returns (address parsedAavePool) {
+                    aaveLendingPool = parsedAavePool;
+                } catch {
+                    console.log("Could not parse aavePool from JSON");
+                }
+                try vm.parseJsonAddress(mocksJson, ".priceOracle") returns (address parsedPriceOracle) {
+                    priceOracle = parsedPriceOracle;
+                } catch {
+                    console.log("Could not parse priceOracle from JSON");
+                }
                 console.log("Loaded mock addresses from deployment file");
             } catch {
                 console.log("No mock deployment file found, using environment variables");

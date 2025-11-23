@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide explains how to deploy the fx-protocol contracts to local Anvil or testnet.
+This guide explains how to deploy the forked f(x) protocol contracts and BundledVault to local Anvil or testnet.
 
 ## Prerequisites
 
@@ -42,6 +42,33 @@ This will:
 1. Deploy mock tokens (fxUSD, USDC, Aave Pool, Price Oracle) - **only on local Anvil**
 2. Deploy PoolConfiguration
 3. Deploy PoolManager
+
+### Step 4: Deploy BundledVault
+
+After deploying PoolManager, deploy BundledVault:
+
+```bash
+forge script script/DeployBundledVault.s.sol --rpc-url localhost --broadcast
+```
+
+Or for testnet:
+```bash
+forge script script/DeployBundledVault.s.sol \
+  --rpc-url sapphire-testnet \
+  --broadcast \
+  --env-var POOL_MANAGER_ADDRESS 0x... \
+  --env-var POOL_ADDRESS 0x... \
+  --env-var WETH_ADDRESS 0x... \
+  --env-var RESOLVER_ADDRESS 0x... \
+  --env-var OPERATOR_ADDRESS 0x...
+```
+
+**Note:** BundledVault requires:
+- PoolManager to be deployed
+- Pool to be deployed (or use MockPool for testing)
+- WETH address (or MockWETH for testing)
+- Resolver address (off-chain service)
+- Operator address (for creating positions)
 
 ### Option 2: Deploy Step by Step
 
@@ -90,21 +117,54 @@ forge script script/DeployPoolManager.s.sol \
   --env-var POOL_CONFIGURATION 0x...
 ```
 
+#### Step 4: Deploy BundledVault
+
+After deploying PoolManager, deploy BundledVault:
+
+```bash
+forge script script/DeployBundledVault.s.sol --rpc-url localhost --broadcast
+```
+
+Or for testnet:
+```bash
+forge script script/DeployBundledVault.s.sol \
+  --rpc-url sapphire-testnet \
+  --broadcast \
+  --env-var POOL_MANAGER_ADDRESS 0x... \
+  --env-var POOL_ADDRESS 0x... \
+  --env-var WETH_ADDRESS 0x... \
+  --env-var RESOLVER_ADDRESS 0x... \
+  --env-var OPERATOR_ADDRESS 0x...
+```
+
+**Note:** BundledVault requires:
+- PoolManager to be deployed
+- Pool to be deployed (or use MockPool for testing)
+- WETH address (or MockWETH for testing)
+- Resolver address (off-chain service)
+- Operator address (for creating positions)
+
 ## Deployment Addresses
 
 After deployment, addresses are saved to JSON files in `deployments/`:
 - `deployments/mocks-{chainId}.json` - Mock token addresses
 - `deployments/pool-config-{chainId}.json` - PoolConfiguration address
 - `deployments/pool-manager-{chainId}.json` - PoolManager, ReservePool, RevenuePool addresses
+- `deployments/bundled-vault-{chainId}.json` - BundledVault address and related contracts
 
 ## Using with Resolver Service
 
-After deploying, update your resolver service with the PoolManager address:
+After deploying, update your resolver service with the contract addresses:
 
 ```bash
 # In docker-compose.rofl.yml or .env
 POOL_MANAGER_ADDRESS=0x... # from deployments/pool-manager-{chainId}.json
+VAULT_ADDRESS=0x...         # from deployments/bundled-vault-{chainId}.json
+POOL_ADDRESS=0x...          # from deployments/bundled-vault-{chainId}.json
+WETH_ADDRESS=0x...          # from deployments/bundled-vault-{chainId}.json
 ```
+
+The resolver service will automatically load addresses from deployment files if available.
 
 ## Testnet Deployment (Oasis Sapphire)
 

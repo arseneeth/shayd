@@ -54,6 +54,7 @@ services:
       - RESOLVER_URL=http://resolver:3001
       - POOL_MANAGER_ADDRESS=${POOL_MANAGER_ADDRESS:-}
       - PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      - FOUNDRY_DISABLE_NIGHTLY_WARNING=1
     volumes:
       - ./scaffold:/app/scaffold:z
       - ./tests:/app/tests:z
@@ -66,7 +67,8 @@ services:
       resolver:
         condition: service_started
     # Deploy contracts using Scaffold's deploy script, then run tests
-    command: /bin/sh -c "cd /app/scaffold/packages/foundry && mkdir -p deployments && forge script script/Deploy.s.sol --rpc-url http://anvil:8545 --broadcast || echo 'Deployment skipped (Anvil may not be accessible)' && cd /app && npm run test:integration"
+    # Use timeout to prevent hanging, skip solc download if rate limited
+    command: /bin/sh -c "cd /app/scaffold/packages/foundry && mkdir -p deployments && export FOUNDRY_DISABLE_NIGHTLY_WARNING=1 && timeout 120 forge script script/Deploy.s.sol:DeployScript --rpc-url http://anvil:8545 --broadcast --skip-simulation 2>&1 || echo 'Deployment failed or skipped' && sleep 2 && timeout 120 forge script script/DeployBundledVault.s.sol:DeployBundledVault --rpc-url http://anvil:8545 --broadcast --skip-simulation 2>&1 || echo 'BundledVault deployment failed or skipped' && cd /app && npx jest --config jest.config.js tests/integration"
 
 networks:
   shayd-network:

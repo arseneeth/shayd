@@ -1,7 +1,7 @@
 {
   "name": "shayd-integration-tests",
   "version": "1.0.0",
-  "description": "Integration tests for ROFL TEE and Resolver",
+  "description": "Privacy-first leveraged trading/yield generation platform - Integration tests for ROFL TEE and Resolver",
   "scripts": {
     "test:integration": "jest --config jest.config.js tests/integration",
     "test:integration:watch": "jest --watch --config jest.config.js tests/integration",

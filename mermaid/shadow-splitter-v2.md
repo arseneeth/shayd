@@ -1,4 +1,4 @@
-# Shadow Splitter: Privacy-First DeFi Yield Platform (v2.0)
+# Shayd: Privacy-First Leveraged Trading/Yield Generation Platform (v2.0)
 
 ## System Architecture
 
@@ -9,14 +9,14 @@ graph TB
     end
     
     subgraph PRIVACY["🔒 PRIVACY & SECURITY"]
-        B["Oasis ROFL TEE<br/>• Hash position parameters<br/>• Secure parameter processing<br/>• Trusted execution environment"]
-        C["Position Parameter Hashing<br/>• Collateral amount<br/>• Debt amount<br/>• Owner address<br/>• Position ID"]
+        B["Frontend Encryption<br/>• User encrypts parameters<br/>• AES-256-GCM encryption<br/>• Never sent in plaintext"]
+        C["Oasis ROFL TEE<br/>• Stores encrypted parameters<br/>• Decrypts for operator only<br/>• Liquidation prices private"]
     end
     
     subgraph CORE["💰 CORE VAULT SYSTEM"]
-        D["ETH → eETH Swap<br/>• DEX integration<br/>• Atomic transactions<br/>• 1inch/Uniswap"]
-        E["Leveraged Yield Farming<br/>• Automated rebalancing<br/>• Risk management<br/>• Multiple strategies"]
-        F["Yield Generation<br/>• Lending protocols<br/>• Trading strategies<br/>• Cross-DEX arbitrage"]
+        D["BundledVault<br/>• Accepts ETH deposits<br/>• Bundles 10 positions<br/>• Atomic flash loan bundle"]
+        E["Atomic Position Creation<br/>• Flash loan<br/>• Open all 10 positions<br/>• Repay flash loan<br/>• Single transaction"]
+        F["Forked f(x) Protocol<br/>• Pool Manager<br/>• Position management<br/>• Soft liquidations only"]
     end
     
     subgraph REVENUE["📈 REVENUE & DISTRIBUTION"]
@@ -34,12 +34,12 @@ graph TB
     end
     
     %% Main flow
-    A -->|"1. Position params"| B
-    B -->|"2. Hash parameters"| C
-    C -->|"3. ETH deposit"| D
-    D -->|"4. eETH tokens"| E
-    E -->|"5. Yield strategies"| F
-    F -->|"6. Generated yield"| G
+    A -->|"1. Deposit ETH"| D
+    A -->|"2. Encrypt params (frontend)"| B
+    B -->|"3. Store encrypted"| C
+    C -->|"4. Bundle ready (10 deposits)"| E
+    E -->|"5. Atomic: Flash loan + Open positions + Repay"| F
+    F -->|"6. Positions created<br/>(liquidation prices private)"| G
     G -->|"7. User rewards"| H
     
     %% Risk management loop
@@ -68,53 +68,72 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant U as 👤 User
+    participant F as 🌐 Frontend
     participant T as 🔒 Oasis ROFL TEE
-    participant V as 💰 Vault Core
-    participant D as 🦄 DEXs
-    participant L as 🏦 Lending Protocols
+    participant V as 💰 BundledVault
+    participant FL as 💸 Flash Loan
+    participant P as 🏦 Pool Manager (f(x))
     
-    Note over U,L: User Deposit & Parameter Hashing
-    U->>T: 1. Submit position params<br/>(collateral, debt, owner)
-    T->>T: 2. Hash position parameters<br/>(secure TEE processing)
-    T->>V: 3. Submit hashed params<br/>(on-chain verification)
-    U->>V: 4. Deposit ETH
+    Note over U,P: User Deposit & Frontend Encryption
+    U->>F: 1. Deposit ETH + set params<br/>(collateral, debt, owner)
+    F->>F: 2. Encrypt position params<br/>(AES-256-GCM, frontend)
+    F->>T: 3. Store encrypted params<br/>(resolver never sees plaintext)
+    U->>V: 4. Deposit ETH transaction
     
-    Note over U,L: Yield Strategy Execution
-    V->>D: 5. Swap ETH → eETH<br/>(atomic transaction)
-    V->>L: 6. Borrow additional ETH<br/>(leverage up)
-    V->>L: 7. Lend eETH for yield<br/>(multiple protocols)
+    Note over U,P: Bundle & Atomic Position Creation
+    V->>V: 5. Wait for 10 deposits<br/>(bundle ready)
+    V->>T: 6. Operator requests params<br/>(for bundle)
+    T->>T: 7. Decrypt in TEE<br/>(operator only, liquidation prices private)
+    T->>V: 8. Return decrypted params<br/>(for position creation)
+    V->>FL: 9. Take flash loan<br/>(atomic transaction starts)
+    V->>P: 10. Open all 10 positions<br/>(same transaction)
+    V->>FL: 11. Repay flash loan<br/>(same transaction)
+    V->>V: 12. Positions created<br/>(liquidation prices remain private)
     
-    Note over U,L: Monitoring & Distribution
-    V->>V: 8. Monitor & rebalance positions<br/>(risk management)
-    V->>U: 9. Distribute f/x tokens + yield<br/>(governance rights)
+    Note over U,P: Withdrawal
+    U->>V: 13. Request withdrawal
+    V->>T: 14. Request encrypted params
+    T->>U: 15. Return encrypted params<br/>(user decrypts on frontend)
+    U->>V: 16. Close position<br/>(with decrypted params)
 ```
 
-## Position Creation & TEE Hashing
+## Position Creation & Atomic Bundling
 
 ```mermaid
 sequenceDiagram
     participant U as 👤 User
-    participant W as 🌐 Wallet (Ethers.js)
+    participant F as 🌐 Frontend
     participant T as 🔒 Oasis ROFL TEE
-    participant C as 💰 Vault Contract
-    participant D as 🦄 DEXs
+    participant O as 👷 Operator
+    participant V as 💰 BundledVault
+    participant FL as 💸 Flash Loan
+    participant P as 🏦 Pool Manager (f(x))
     
-    Note over U,D: Phase 1: Position Parameter Submission
-    U->>W: 1. Set position params<br/>(collateral, debt, owner, positionId)
-    W->>T: 2. Submit position parameters<br/>(to TEE for hashing)
+    Note over U,P: Phase 1: Deposit & Encryption
+    U->>F: 1. Deposit ETH<br/>(to BundledVault)
+    F->>F: 2. Encrypt position params<br/>(AES-256-GCM, frontend)
+    F->>T: 3. Store encrypted params<br/>(resolver never sees plaintext)
+    U->>V: 4. Deposit ETH transaction
     
-    Note over U,D: Phase 2: TEE Parameter Hashing
-    T->>T: 3. Hash position parameters<br/>hash = TEE_Hash(collateral, debt, owner, positionId)
-    T->>C: 4. Return hashed commitment<br/>(on-chain verification)
+    Note over U,P: Phase 2: Bundle Ready (10 deposits)
+    V->>V: 5. Collect 10 deposits<br/>(bundle ready)
+    V->>O: 6. Bundle ready event
     
-    Note over U,D: Phase 3: Position Creation
-    W->>C: 5. Submit transaction with hash<br/>(verify hash matches TEE output)
-    C->>C: 6. Verify hash from TEE<br/>(ensure parameter integrity)
-    C->>D: 7. Execute position creation<br/>(atomic transactions)
+    Note over U,P: Phase 3: Atomic Position Creation
+    O->>T: 7. Request encrypted params<br/>(for bundle)
+    T->>O: 8. Return encrypted params<br/>(operator decrypts in TEE)
+    O->>FL: 9. Take flash loan<br/>(for position creation)
+    O->>V: 10. createPositionsFromBundle()<br/>(atomic transaction)
+    V->>P: 11. Open position 1<br/>(flash loan active)
+    V->>P: 12. Open position 2<br/>(flash loan active)
+    V->>P: 13. ... Open positions 3-10<br/>(all in same transaction)
+    V->>FL: 14. Repay flash loan<br/>(same transaction)
+    V->>V: 15. All positions created<br/>(atomic bundle complete)
     
-    Note over U,D: Privacy Protection
-    Note over T: TEE ensures:<br/>• Secure parameter hashing<br/>• Parameter integrity<br/>• Trusted execution
-    Note over C: Contract stores only:<br/>• Hashed parameters<br/>• Public position data<br/>• No raw parameters
+    Note over U,P: Privacy Protection
+    Note over F: Frontend encrypts:<br/>• Position parameters<br/>• Never sent plaintext<br/>• User controls encryption
+    Note over T: TEE stores:<br/>• Encrypted parameters<br/>• Decrypts for operator only<br/>• Liquidation prices private
+    Note over V: On-chain sees only:<br/>• Final position state<br/>• Not individual params<br/>• Liquidation prices hidden
 ```
 
 ## Liquidation Flow with Resolver
@@ -150,12 +169,12 @@ graph LR
     end
     
     subgraph TEE["🔒 OASIS ROFL TEE"]
-        C["Parameter Hashing<br/>Hash position params<br/>Secure TEE processing<br/>Return hash commitment"]
+        C["Encrypted Storage<br/>Store encrypted params<br/>Decrypt for operator only<br/>Liquidation prices private"]
     end
     
     subgraph ONCHAIN["⛓️ ON-CHAIN EXECUTION"]
-        D["Vault Contract<br/>Verify TEE hash<br/>Execute position<br/>Store hashed params"]
-        E["Pool Manager<br/>Position operations<br/>Debt/collateral management"]
+        D["BundledVault<br/>Accept deposits<br/>Bundle 10 positions<br/>Atomic flash loan bundle"]
+        E["Pool Manager (f(x))<br/>Position operations<br/>Debt/collateral management<br/>Soft liquidations"]
     end
     
     subgraph RESOLVER["🔧 RESOLVER SERVICE"]
@@ -168,10 +187,11 @@ graph LR
     end
     
     %% Main flow
-    A -->|"1"| B
-    B -->|"2"| C
-    C -->|"3"| D
-    D -->|"4"| E
+    A -->|"1. Deposit ETH"| D
+    A -->|"2. Encrypt params"| B
+    B -->|"3. Store encrypted"| C
+    C -->|"4. Bundle ready"| D
+    D -->|"5. Atomic flash loan bundle"| E
     
     %% Monitoring flow
     E -->|"5"| H
@@ -195,49 +215,53 @@ graph LR
 
 ## Core Concept
 
-**Shadow Splitter v2.0** implements privacy-preserving leveraged yield farming using Oasis ROFL TEE for secure parameter hashing and a dedicated resolver service for automated liquidations.
+**Shayd** implements a privacy-first leveraged trading/yield generation platform using Oasis ROFL TEE for secure parameter hashing and a dedicated resolver service for automated liquidations.
 
-### Key Innovation: TEE-Based Parameter Hashing
+### Key Innovation: Frontend Encryption + Atomic Bundling
 
-**Problem**: Position parameters (collateral, debt, owner) need to be protected from MEV extraction while maintaining on-chain verifiability.
+**Problem**: Position parameters (collateral, debt, owner) reveal liquidation prices, making positions vulnerable to MEV extraction.
 
-**Solution**: Oasis ROFL TEE architecture:
-1. **TEE Parameter Hashing**: Position parameters are hashed securely in the TEE
-2. **On-Chain Verification**: Contracts verify hashed parameters match TEE output
-3. **Resolver Liquidations**: Automated liquidation execution via resolver service
-4. **No Noise Injection**: Direct, efficient execution without obfuscation
+**Solution**: Privacy-first architecture:
+1. **Frontend Encryption**: Users encrypt position parameters before sending to resolver
+2. **TEE Storage**: Encrypted parameters stored in TEE, resolver never sees plaintext
+3. **Atomic Bundling**: Flash loan + Open all 10 positions + Repay in single transaction
+4. **Liquidation Prices Private**: Only TEE knows position parameters; on-chain only sees final state
+5. **Soft Liquidations**: Positions can be partially liquidated, no hard liquidations
 
 ### Technical Implementation
 
 **Architecture Layers**:
-- **TEE Layer**: Oasis ROFL TEE for secure parameter hashing
-- **Vault Core**: Automated leveraged yield farming with hashed parameter storage
-- **Resolver Layer**: Automated liquidation execution and position monitoring
+- **Frontend Layer**: User-side encryption (AES-256-GCM) before sending to resolver
+- **TEE Layer**: Oasis ROFL TEE for encrypted parameter storage and operator decryption
+- **Vault Core**: BundledVault with atomic flash loan bundling (forked f(x) protocol)
+- **Resolver Layer**: Automated soft liquidation execution and position monitoring
 - **Monitoring Layer**: Risk management and position monitoring
 
 **Key Technical Features**:
-- **TEE Parameter Hashing**: Secure hashing of position parameters in trusted execution environment
-- **Resolver Service**: Automated liquidation execution in resolver folder
-- **Direct Execution**: No noise injection, transaction bundling, or private mempooling
-- **On-Chain Verification**: Contracts verify TEE hash outputs
+- **Frontend Encryption**: Position parameters encrypted before leaving user's device
+- **Atomic Bundling**: Flash loan + position opening + repayment in single transaction
+- **Privacy Protection**: Liquidation prices only known to TEE, on-chain sees final state only
+- **Forked f(x) Protocol**: Direct fork with soft liquidation support
+- **No Hard Liquidations**: Positions can be partially liquidated to restore health
 
-### Position Parameter Hashing
+### Position Parameter Encryption
 
-Position parameters that are hashed by the TEE include:
-- **Collateral Amount** (`newRawColl`): The amount of collateral tokens
-- **Debt Amount** (`newRawDebt`): The amount of debt tokens
+Position parameters that are encrypted on the frontend include:
+- **Collateral Amount**: The amount of collateral tokens
+- **Debt Amount**: The amount of debt tokens
 - **Owner Address**: The address of the position owner
 - **Position ID**: The unique identifier for the position
 
-The TEE generates a hash commitment that is verified on-chain before position creation.
+The frontend encrypts these parameters using AES-256-GCM before sending to the resolver. The TEE stores encrypted parameters and only decrypts for the operator when creating positions. This ensures liquidation prices remain private until after the atomic bundle transaction completes.
 
-### Liquidation Execution
+### Soft Liquidation Execution
 
-Liquidations are executed by the resolver service located in the `resolver/` folder:
+Soft liquidations are executed by the resolver service located in the `resolver/` folder:
 - **Position Monitoring**: Continuously monitors position debt ratios
 - **Liquidation Detection**: Identifies undercollateralized positions
-- **Automated Execution**: Executes liquidations via Pool Manager contract
-- **Parameter Calculation**: Calculates liquidation parameters (maxRawDebts, receiver)
+- **Automated Execution**: Executes soft liquidations via Pool Manager contract (forked f(x))
+- **Partial Liquidation**: Positions are partially liquidated to restore health, never fully closed
+- **No Hard Liquidations**: Users can recover positions after soft liquidation
 
 ### Revenue Model
 

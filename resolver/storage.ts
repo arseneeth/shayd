@@ -8,8 +8,18 @@
  */
 
 import Database from 'better-sqlite3';
-import { StoredPositionParams, EncryptedDepositParams, PositionHealth } from './resolver';
+import { StoredPositionParams, EncryptedDepositParams } from './resolver';
 import { EncryptedParams } from './encryption';
+
+// PositionHealth interface - kept here for storage purposes
+// Health checks are now performed by keeper service, but storage still needs this interface
+interface PositionHealth {
+  positionId: string;
+  debtRatio: bigint;
+  liquidationThreshold: bigint;
+  isNearLiquidation: boolean;
+  teeCollateralTakeover: bigint;
+}
 
 export class PersistentStorage {
   private db: Database.Database;

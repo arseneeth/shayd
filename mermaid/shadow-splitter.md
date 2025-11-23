@@ -26,6 +26,8 @@ graph TB
     
     subgraph MONITORING["📊 RISK MONITORING"]
         I["Risk Monitoring<br/>• Liquidation protection<br/>• Market surveillance<br/>• Automated alerts"]
+        R["Resolver Service<br/>• TEE operations only<br/>• Position parameter storage<br/>• Encryption/decryption"]
+        K["Keeper Service<br/>• Price oracle queries<br/>• Position health monitoring<br/>• Liquidation execution"]
     end
     
     subgraph EXTERNAL["🌐 EXTERNAL SYSTEMS"]
@@ -43,7 +45,11 @@ graph TB
     
     %% Risk management loop
     E -->|"Risk data"| I
-    I -->|"Rebalancing signals"| E
+    I -->|"Price data"| K
+    K -->|"Query prices"| F
+    K -->|"Monitor positions"| F
+    K -->|"Execute liquidations"| F
+    R -->|"Store position params"| C
     
     %% External interactions
     K -.->|"Blocked"| B
@@ -60,7 +66,7 @@ graph TB
     class B,C privacyStyle
     class D,E,F coreStyle
     class G,H revenueStyle
-    class I monitoringStyle
+    class I,R,K monitoringStyle
     class K externalStyle
 ```
 

@@ -4,6 +4,8 @@ pragma solidity ^0.8.26;
 import { Script, console } from "forge-std/Script.sol";
 import { BundledVault } from "../contracts/core/BundledVault.sol";
 import { MockWETH } from "../contracts/mocks/MockWETH.sol";
+import { MockPool } from "../contracts/mocks/MockPool.sol";
+import { PoolManager } from "../contracts/core/PoolManager.sol";
 
 /**
  * @notice Deploy BundledVault contract
@@ -64,20 +66,47 @@ contract DeployBundledVault is Script {
             revert("WETH address not found. Set WETH env var or deploy MockWETH first.");
         }
 
-        // Load pool address (must be provided via environment variable)
-        // PoolManager doesn't expose a method to get registered pools, so we require it to be set
+        // Load pool address or deploy MockPool for local testing
         address poolAddr = vm.envOr("POOL", address(0));
         
+        // Load fxUSD address (needed for MockPool)
+        address fxUSDAddr = vm.envOr("FXUSD", address(0));
+        if (block.chainid == 31337 && fxUSDAddr == address(0)) {
+            string memory chainId = vm.toString(block.chainid);
+            try vm.readFile(string.concat("./deployments/mocks-", chainId, ".json")) returns (string memory mocksJson) {
+                try vm.parseJsonAddress(mocksJson, ".fxUSD") returns (address parsedFxUSD) {
+                    fxUSDAddr = parsedFxUSD;
+                    console.log("Loaded fxUSD from deployment file:", fxUSDAddr);
+                } catch {}
+            } catch {}
+        }
+        
+        // Use WETH as collateral token for now (can be overridden via env var)
+        address collateralTokenAddr = vm.envOr("COLLATERAL_TOKEN", wethAddr);
+        
+        // For local testing, deploy MockPool if not provided
+        if (block.chainid == 31337 && poolAddr == address(0) && fxUSDAddr != address(0)) {
+            vm.startBroadcast(deployerPrivateKey);
+            MockPool mockPool = new MockPool(poolManagerAddr, collateralTokenAddr, fxUSDAddr);
+            poolAddr = address(mockPool);
+            vm.stopBroadcast();
+            console.log("Deployed MockPool at:", poolAddr);
+            
+            // Register pool with PoolManager
+            vm.startBroadcast(deployerPrivateKey);
+            PoolManager poolManager = PoolManager(poolManagerAddr);
+            poolManager.registerPool(poolAddr, type(uint96).max, type(uint96).max);
+            vm.stopBroadcast();
+            console.log("Registered MockPool with PoolManager");
+        }
+        
         if (poolAddr == address(0)) {
-            console.log("Warning: POOL address not set. Vault will need pool address to be set later via setPool()");
+            console.log("Warning: POOL address not set and could not deploy MockPool. Vault will need pool address to be set later via setPool()");
         }
 
         // Load resolver and operator addresses
         address resolverAddr = vm.envOr("RESOLVER", deployer); // Default to deployer for testing
         address operatorAddr = vm.envOr("OPERATOR", deployer); // Default to deployer for testing
-
-        // Use WETH as collateral token for now (can be overridden via env var)
-        address collateralTokenAddr = vm.envOr("COLLATERAL_TOKEN", wethAddr);
 
         console.log("Deployment parameters:");
         console.log("  PoolManager:", poolManagerAddr);

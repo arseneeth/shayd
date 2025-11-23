@@ -21,7 +21,8 @@ services:
       retries: 10
       start_period: 5s
 
-  # Resolver Service - Combined ROFL TEE hashing and liquidation execution
+  # Resolver Service - ROFL TEE hashing and position parameter storage
+  # Following ROFL best practices: Resolver handles TEE operations only
   resolver:
     build:
       context: ./resolver
@@ -30,10 +31,6 @@ services:
       - "3001:3001"  # Resolver API port (includes ROFL TEE /hash endpoint)
     environment:
       - RPC_URL=http://anvil:8545
-      - POOL_MANAGER_ADDRESS=${POOL_MANAGER_ADDRESS:-}
-      - PRIVATE_KEY=${RESOLVER_PRIVATE_KEY:-}
-      - LIQUIDATION_THRESHOLD=1000000000000000000
-      - MONITORING_INTERVAL=30000
       - DB_PATH=/app/data/tee-storage.db
       - TEE_ENCRYPTION_PASSWORD=${TEE_ENCRYPTION_PASSWORD:-test-tee-password}
     volumes:
@@ -44,8 +41,45 @@ services:
     networks:
       - shayd-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      anvil:
+        condition: service_healthy
+
+  # Keeper Service - Price monitoring and liquidation execution
+  # Following ROFL best practices: Separate keeper for oracle queries and keeper operations
+  # This ensures the program constantly queries prices and triggers operations at the right time
+  keeper:
+    build:
+      context: ./keeper
+      dockerfile: Dockerfile
+    environment:
+      - RPC_URL=http://anvil:8545
+      - PRIVATE_KEY=${KEEPER_PRIVATE_KEY:-${RESOLVER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}}
+      - POOL_MANAGER_ADDRESS=${POOL_MANAGER_ADDRESS:-}
+      - POOL_ADDRESS=${POOL_ADDRESS:-}
+      - PRICE_UPDATE_INTERVAL=${PRICE_UPDATE_INTERVAL:-10000}
+      - POSITION_CHECK_INTERVAL=${POSITION_CHECK_INTERVAL:-30000}
+      - LIQUIDATION_THRESHOLD=${LIQUIDATION_THRESHOLD:-1000000000000000000}
+      - NEAR_LIQUIDATION_BUFFER=${NEAR_LIQUIDATION_BUFFER:-95}
+      - PRICE_ORACLE_ADDRESS=${PRICE_ORACLE_ADDRESS:-}
+      - PRICE_ORACLE_ASSET=${PRICE_ORACLE_ASSET:-ETH}
+      - PRICE_ORACLE_UPDATE_INTERVAL=${PRICE_ORACLE_UPDATE_INTERVAL:-10000}
+    volumes:
+      - ./keeper:/app:z
+      - ./resolver:/app/resolver:z
+      - /app/node_modules
+    networks:
+      - shayd-network
+    restart: unless-stopped
     depends_on:
       - anvil
+      - resolver
 
   # Next.js Frontend - Scaffold-ETH 2 UI
   nextjs:
@@ -93,7 +127,7 @@ services:
       anvil:
         condition: service_healthy
       resolver:
-        condition: service_started
+        condition: service_healthy
     # Deploy contracts using Scaffold's deploy script, then run tests
     # Install solc first with retries, then deploy contracts
     command: /bin/sh -c "cd /app/scaffold/packages/foundry && mkdir -p deployments && export FOUNDRY_DISABLE_NIGHTLY_WARNING=1 && if command -v svm >/dev/null 2>&1; then for v in 0.8.26 0.8.28 0.8.30; do echo 'Installing solc' \$v && for i in 1 2 3; do svm install \$v 2>&1 && break || (if [ \$i -lt 3 ]; then sleep 30; fi); done; done; fi && timeout 300 forge script script/Deploy.s.sol:DeployScript --rpc-url http://anvil:8545 --broadcast --skip-simulation 2>&1 || echo 'Deployment failed or skipped' && sleep 2 && timeout 300 forge script script/DeployBundledVault.s.sol:DeployBundledVault --rpc-url http://anvil:8545 --broadcast --skip-simulation 2>&1 || echo 'BundledVault deployment failed or skipped' && cd /app && npx jest --config jest.config.js --runInBand tests/integration"

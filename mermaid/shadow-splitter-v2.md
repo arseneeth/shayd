@@ -26,7 +26,8 @@ graph TB
     
     subgraph MONITORING["📊 RISK MONITORING"]
         I["Risk Monitoring<br/>• Liquidation protection<br/>• Market surveillance<br/>• Automated alerts"]
-        R["Resolver Service<br/>• Liquidation execution<br/>• Position monitoring<br/>• Automated triggers"]
+        R["Resolver Service<br/>• TEE operations only<br/>• Position parameter storage<br/>• Encryption/decryption"]
+        K["Keeper Service<br/>• Price oracle queries<br/>• Position health monitoring<br/>• Liquidation execution"]
     end
     
     subgraph EXTERNAL["🌐 EXTERNAL SYSTEMS"]
@@ -44,8 +45,11 @@ graph TB
     
     %% Risk management loop
     E -->|"Risk data"| I
-    I -->|"Liquidation signals"| R
-    R -->|"Execute liquidations"| E
+    I -->|"Price data"| K
+    K -->|"Query prices"| F
+    K -->|"Monitor positions"| F
+    K -->|"Execute liquidations"| F
+    R -->|"Store position params"| C
     
     %% Styling
     classDef userStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
@@ -59,7 +63,7 @@ graph TB
     class B,C privacyStyle
     class D,E,F coreStyle
     class G,H revenueStyle
-    class I,R monitoringStyle
+    class I,R,K monitoringStyle
     class K externalStyle
 ```
 
@@ -136,26 +140,36 @@ sequenceDiagram
     Note over V: On-chain sees only:<br/>• Final position state<br/>• Not individual params<br/>• Liquidation prices hidden
 ```
 
-## Liquidation Flow with Resolver
+## Price Monitoring & Liquidation Flow with Keeper
 
 ```mermaid
 sequenceDiagram
-    participant M as 📊 Risk Monitor
-    participant R as 🔧 Resolver Service
-    participant C as 💰 Vault Contract
+    participant O as 📊 Price Oracle
+    participant K as 🤖 Keeper Service
     participant P as 🏦 Pool Manager
+    participant C as 💰 Vault Contract
     participant U as 👤 User
     
-    Note over M,U: Liquidation Detection & Execution
-    M->>M: 1. Monitor positions<br/>(check debt ratios)
-    M->>R: 2. Detect undercollateralized<br/>(liquidation threshold exceeded)
-    R->>R: 3. Calculate liquidation params<br/>(maxRawDebts, receiver)
-    R->>P: 4. Execute liquidation<br/>(liquidate function call)
-    P->>C: 5. Process liquidation<br/>(burn debt, transfer collateral)
-    C->>U: 6. Transfer collateral<br/>(to receiver address)
+    Note over O,U: Continuous Price Monitoring (ROFL Best Practice)
+    loop Every 10 seconds
+        K->>O: 1. Query price<br/>(getPrice from oracle)
+        O->>K: 2. Return price data<br/>(anchor, min, max)
+    end
     
-    Note over M,U: Resolver Execution
-    Note over R: Resolver handles:<br/>• Position monitoring<br/>• Liquidation triggers<br/>• Automated execution
+    Note over O,U: Position Health Monitoring
+    loop Every 30 seconds
+        K->>P: 3. Check position health<br/>(getPositionDebtRatio)
+        P->>K: 4. Return debt ratio<br/>(position status)
+        alt Position liquidatable
+            K->>K: 5. Calculate liquidation params<br/>(maxRawDebts, receiver)
+            K->>P: 6. Execute liquidation<br/>(liquidate function call)
+            P->>C: 7. Process liquidation<br/>(burn debt, transfer collateral)
+            C->>U: 8. Transfer collateral<br/>(to receiver address)
+        end
+    end
+    
+    Note over O,U: Keeper Service Responsibilities
+    Note over K: Keeper handles:<br/>• Continuous price queries<br/>• Position health monitoring<br/>• Automated liquidation execution
     Note over P: Pool Manager:<br/>• Validates liquidation<br/>• Processes debt/collateral<br/>• Updates position state
 ```
 
@@ -177,9 +191,14 @@ graph LR
         E["Pool Manager (f(x))<br/>Position operations<br/>Debt/collateral management<br/>Soft liquidations"]
     end
     
-    subgraph RESOLVER["🔧 RESOLVER SERVICE"]
-        F["Position Monitoring<br/>Monitor debt ratios<br/>Detect liquidations"]
-        G["Liquidation Execution<br/>Calculate params<br/>Execute liquidations"]
+    subgraph RESOLVER["🔧 RESOLVER SERVICE (TEE Only)"]
+        F["TEE Operations<br/>• Position parameter hashing<br/>• Encryption/decryption<br/>• Parameter storage"]
+    end
+    
+    subgraph KEEPER["🤖 KEEPER SERVICE"]
+        G["Price Monitoring<br/>• Query price oracles<br/>• Continuous price updates<br/>• Every 10 seconds"]
+        H["Position Monitoring<br/>• Check position health<br/>• Detect liquidations<br/>• Every 30 seconds"]
+        I["Liquidation Execution<br/>• Calculate params<br/>• Execute liquidations<br/>• Automated triggers"]
     end
     
     subgraph MONITORING["📊 RISK MONITORING"]
@@ -194,22 +213,29 @@ graph LR
     D -->|"5. Atomic flash loan bundle"| E
     
     %% Monitoring flow
-    E -->|"5"| H
-    H -->|"6"| F
-    F -->|"7"| G
-    G -->|"8"| E
+    E -->|"5. Position data"| H
+    H -->|"6. Price queries"| G
+    G -->|"7. Price data"| H
+    H -->|"8. Health checks"| I
+    I -->|"9. Execute liquidations"| E
+    
+    %% Resolver flow (TEE operations)
+    C -->|"Store params"| F
+    F -->|"Retrieve params"| C
     
     %% Styling
     classDef userStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#000
     classDef teeStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px,color:#000
     classDef onchainStyle fill:#fff3e0,stroke:#f57c00,stroke-width:3px,color:#000
     classDef resolverStyle fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px,color:#000
+    classDef keeperStyle fill:#fff9c4,stroke:#f9a825,stroke-width:3px,color:#000
     classDef monitoringStyle fill:#fce4ec,stroke:#c2185b,stroke-width:3px,color:#000
     
     class A,B userStyle
     class C teeStyle
     class D,E onchainStyle
-    class F,G resolverStyle
+    class F resolverStyle
+    class G,H,I keeperStyle
     class H monitoringStyle
 ```
 
@@ -234,7 +260,8 @@ graph LR
 - **Frontend Layer**: User-side encryption (AES-256-GCM) before sending to resolver
 - **TEE Layer**: Oasis ROFL TEE for encrypted parameter storage and operator decryption
 - **Vault Core**: BundledVault with atomic flash loan bundling (forked f(x) protocol)
-- **Resolver Layer**: Automated soft liquidation execution and position monitoring
+- **Resolver Layer**: TEE operations only (hashing, encryption, storage, retrieval)
+- **Keeper Layer**: Price monitoring, position health checks, and liquidation execution (following ROFL best practices)
 - **Monitoring Layer**: Risk management and position monitoring
 
 **Key Technical Features**:
@@ -254,14 +281,21 @@ Position parameters that are encrypted on the frontend include:
 
 The frontend encrypts these parameters using AES-256-GCM before sending to the resolver. The TEE stores encrypted parameters and only decrypts for the operator when creating positions. This ensures liquidation prices remain private until after the atomic bundle transaction completes.
 
-### Soft Liquidation Execution
+### Price Monitoring & Soft Liquidation Execution
 
-Soft liquidations are executed by the resolver service located in the `resolver/` folder:
-- **Position Monitoring**: Continuously monitors position debt ratios
+Following ROFL best practices, price monitoring and liquidations are handled by the dedicated keeper service:
+- **Price Monitoring**: Continuously queries prices from oracles (every 10 seconds by default)
+- **Position Health Checks**: Regularly monitors position debt ratios (every 30 seconds by default)
 - **Liquidation Detection**: Identifies undercollateralized positions
 - **Automated Execution**: Executes soft liquidations via Pool Manager contract (forked f(x))
 - **Partial Liquidation**: Positions are partially liquidated to restore health, never fully closed
 - **No Hard Liquidations**: Users can recover positions after soft liquidation
+- **ROFL Compliance**: Ensures the program queries prices at the right time and constantly monitors underlying assets
+
+The resolver service (in `resolver/` folder) handles only TEE operations:
+- Position parameter hashing
+- Encryption and storage
+- Parameter retrieval for withdrawals
 
 ### Revenue Model
 

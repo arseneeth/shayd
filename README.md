@@ -59,7 +59,10 @@ cd ../resolver && npm install
 ### Running with Docker (Recommended)
 
 ```bash
-# Start all services (Anvil, Resolver, Integration Tests)
+# Run the system flow demo (visual demonstration)
+npm run docker:demo
+
+# Run integration tests
 npm run docker:test
 
 # Or start services separately
@@ -71,6 +74,13 @@ npm run docker:logs
 # Stop services
 npm run docker:down
 ```
+
+**Quick Commands:**
+- `npm run docker:demo` - Run the visual system flow demo
+- `npm run docker:test` - Run integration tests
+- `npm run docker:up` - Start all services in background
+- `npm run docker:logs` - View service logs
+- `npm run docker:down` - Stop all services
 
 ### Local Development
 
@@ -99,15 +109,25 @@ npm install
 npm start
 ```
 
-#### 4. Run Tests
+#### 4. Run Demo
 
 ```bash
-# Foundry tests
+# Run the system flow demo
+npm run demo:with-services
+```
+
+#### 5. Run Tests
+
+```bash
+# Integration tests (requires services running)
+npm run test:integration
+
+# Or use Docker (recommended - handles everything)
+npm run docker:test
+
+# Foundry tests (smart contracts only)
 cd scaffold/packages/foundry
 forge test
-
-# Integration tests
-npm run test:integration
 ```
 
 ## 📁 Project Structure
@@ -162,16 +182,105 @@ See [notes/README_ENCRYPTION.md](notes/README_ENCRYPTION.md) for detailed encryp
 - `POST /link-position` - Link position ID to deposit ID
 - `GET /health` - Health check
 
+## 🎬 Running the Demo
+
+The demo provides a visual, step-by-step demonstration of the entire system flow, including encryption, bundling, and keeper operations.
+
+### Quick Start (Docker - Recommended)
+
+```bash
+# Run demo with all services (Anvil, Resolver, Keeper)
+npm run docker:demo
+
+# View demo logs
+npm run docker:demo:logs
+```
+
+The demo will:
+- ✅ Wait for all services to be ready
+- ✅ Show user deposit and encryption flow
+- ✅ Demonstrate bundle creation and atomic position opening
+- ✅ Display keeper monitoring and partial liquidation execution
+- ✅ Provide visual system architecture overview
+
+### Local Demo (Without Docker)
+
+```bash
+# Basic demo (no services required - uses simulated interactions)
+npm run demo
+
+# With services running locally
+npm run demo:with-services
+```
+
+**Prerequisites for local demo:**
+- Anvil running on `http://localhost:8545`
+- Resolver service running on `http://localhost:3001`
+
+### Demo Output
+
+The demo provides color-coded output showing:
+- 🔵 **Cyan sections** - Major demo sections
+- 🟡 **Yellow steps** - Individual steps in each demo
+- 🟢 **Green checkmarks** - Successful operations
+- 🔴 **Red X marks** - Errors or warnings
+- 📦 **Blue boxes** - Transaction structures and data flows
+
+For more details, see [demo/README.md](demo/README.md).
+
 ## 🧪 Testing
 
-### Foundry Tests
+### Running Tests
+
+#### Option 1: Docker (Recommended - All-in-One)
+
+```bash
+# Run all integration tests in Docker
+# This will:
+# - Start Anvil blockchain
+# - Start Resolver service
+# - Deploy contracts
+# - Run integration tests
+npm run docker:test
+```
+
+#### Option 2: Local Testing
+
+**Prerequisites:**
+- Anvil running on `http://localhost:8545`
+- Resolver service running on `http://localhost:3001`
+- Contracts deployed
+
+**Run tests:**
+```bash
+# Integration tests
+npm run test:integration
+
+# Watch mode (auto-rerun on changes)
+npm run test:integration:watch
+```
+
+#### Option 3: Foundry Tests (Smart Contracts Only)
 
 ```bash
 cd scaffold/packages/foundry
+
+# Run all tests
+forge test
+
+# Run specific test file
+forge test --match-path test/BundledVault.t.sol
+
+# Verbose output
 forge test --match-path test/BundledVault.t.sol -vv
+
+# With gas reporting
+forge test --gas-report
 ```
 
-**Test Coverage:**
+### Test Coverage
+
+**Foundry Tests** (Smart Contracts):
 - ✅ Deposit functionality
 - ✅ Bundle readiness detection
 - ✅ Position creation using forked f(x) protocol
@@ -179,14 +288,32 @@ forge test --match-path test/BundledVault.t.sol -vv
 - ✅ Access control
 - ✅ Position closing and withdrawal
 
-### Integration Tests
+**Integration Tests** (End-to-End):
+- ✅ Resolver service health checks
+- ✅ Encryption/decryption flow
+- ✅ Position parameter storage and retrieval
+- ✅ Bundle creation workflow
+- ✅ End-to-end deposit and withdrawal flows
+
+### Test Structure
+
+```
+tests/
+├── integration/
+│   ├── bundled-vault.test.ts      # BundledVault integration tests
+│   ├── rofl-resolver.test.ts      # Resolver TEE tests
+│   └── README.md                  # Integration test documentation
+└── setup.ts                       # Test setup and utilities
+```
+
+### Viewing Test Results
 
 ```bash
-# Run in Docker (recommended)
-npm run docker:test
+# Docker test logs
+npm run docker:logs
 
-# Or run locally (requires services running)
-npm run test:integration
+# Or view specific service logs
+docker-compose -f docker-compose.rofl.yml logs integration-tests
 ```
 
 ## 📚 Documentation
@@ -329,6 +456,12 @@ npm run build
 - Resolver service
 - Encryption/decryption
 - End-to-end flows
+
+**Demo:** ✅ Fully functional
+- User deposit and encryption flow
+- Bundle creation and atomic position opening
+- Keeper monitoring and partial liquidation
+- System architecture visualization
 
 ## 🤝 Contributing
 

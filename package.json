@@ -5,6 +5,10 @@
   "scripts": {
     "test:integration": "jest --config jest.config.js tests/integration",
     "test:integration:watch": "jest --watch --config jest.config.js tests/integration",
+    "demo": "ts-node demo/system-flow-demo.ts",
+    "demo:with-services": "RPC_URL=http://localhost:8545 RESOLVER_URL=http://localhost:3001 TEE_ENCRYPTION_PASSWORD=test-tee-password ts-node demo/system-flow-demo.ts",
+    "docker:demo": "docker-compose -f docker-compose.rofl.yml up --build demo",
+    "docker:demo:logs": "docker-compose -f docker-compose.rofl.yml logs -f demo",
     "docker:test": "docker-compose -f docker-compose.rofl.yml up --build integration-tests",
     "docker:up": "docker-compose -f docker-compose.rofl.yml up -d",
     "docker:down": "docker-compose -f docker-compose.rofl.yml down",
@@ -19,6 +23,8 @@
     "@types/node": "^20.0.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "tsx": "^4.7.0",
     "typescript": "^5.0.0"
   }
 }

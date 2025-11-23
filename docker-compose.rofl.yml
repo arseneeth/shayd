@@ -105,6 +105,32 @@ services:
       anvil:
         condition: service_healthy
 
+  # System Flow Demo - Visual demonstration of the entire system
+  demo:
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    environment:
+      - RPC_URL=http://anvil:8545
+      - RESOLVER_URL=http://resolver:3001
+      - TEE_ENCRYPTION_PASSWORD=${TEE_ENCRYPTION_PASSWORD:-test-tee-password}
+    volumes:
+      - ./demo:/app/demo:z
+      - ./resolver:/app/resolver:z
+      - ./tsconfig.json:/app/tsconfig.json:z
+      - /app/node_modules
+    networks:
+      - shayd-network
+    depends_on:
+      anvil:
+        condition: service_healthy
+      resolver:
+        condition: service_healthy
+    # Run the demo script with tsx (better TypeScript support)
+    command: npx tsx demo/system-flow-demo.ts
+    # Set to false if you want to keep it running, true to exit after demo
+    restart: "no"
+
   # Integration Test Runner
   integration-tests:
     build:

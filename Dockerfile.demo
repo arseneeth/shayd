@@ -1,0 +1,35 @@
+# Dockerfile for System Flow Demo
+
+FROM node:20-slim
+
+# Install curl for health checks
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install dependencies
+RUN npm install
+
+# Copy tsconfig.json for ts-node
+COPY tsconfig.json ./
+
+# Copy demo files
+COPY demo ./demo
+COPY resolver ./resolver
+
+# Verify demo script exists
+RUN test -f /app/demo/system-flow-demo.ts && echo "Demo script found" || (echo "ERROR: Demo script not found!" && exit 1)
+
+WORKDIR /app
+
+# Default command - can be overridden in docker-compose
+# Using tsx as it handles TypeScript files better than ts-node
+ENTRYPOINT []
+CMD ["npx", "tsx", "demo/system-flow-demo.ts"]
+
